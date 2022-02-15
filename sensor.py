@@ -26,16 +26,13 @@ headers = {
     'Accept': 'application/json',
 }
 
-
 def setup_platform(
         hass: HomeAssistant,
         config: ConfigType,
-        add_entities: AddEntitiesCallback,
-        discovery_info: DiscoveryInfoType | None = None
+        add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the sensor platform."""
-    authToken, response = login(CONF_USERNAME, CONF_PASSWORD)
-    response_json = response.json()
+    authToken = login(CONF_USERNAME, CONF_PASSWORD)
 
     responseDevices = requests.get(url_devices_list, headers={
         'Content-Type': 'application/json',
@@ -57,7 +54,7 @@ def login(username, password):
                "DeviceId": "123",  # TODO randomize it
                "DeviceName": "Home Assistant: 99.9.999.99<br>",
                "DeviceType": "Web"}
-    response = requests.post(login_url, headers=headers, json=payload)
+    response = requests.post(login_url, headers=headers, json=payload).json()
     return response.get('Token')
 
 
