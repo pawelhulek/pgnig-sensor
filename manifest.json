@@ -1,7 +1,7 @@
 {
   "domain": "pgnig_gas_sensor",
   "name": "PGNIG gas Sensor",
-  "documentation": "https://github.com/pawel.hulek/pgnig_gas_sensor",
+  "documentation": "https://github.com/pawel.hulek/pgnig-sensor",
   "dependencies": [],
   "codeowners": [],
   "requirements": [],
