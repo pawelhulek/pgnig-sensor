@@ -10,7 +10,7 @@ from homeassistant.components.sensor import SensorEntity, PLATFORM_SCHEMA, Senso
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, ENERGY_KILO_WATT_HOUR
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.helpers.typing import ConfigType
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_USERNAME): cv.string,
@@ -42,9 +42,9 @@ def setup_platform(
     pgps = responseDevices.json().get("PpgList")
 
     for x in pgps:
-        meterId = x.get('MeterNumber')
+        meter_id = x.get('MeterNumber')
         add_entities(
-            [PgnigSensor(hass, config, meterId)])
+            [PgnigSensor(hass, config, meter_id)])
 
 
 def login(username, password):
