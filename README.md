@@ -1,4 +1,10 @@
-Home assistant integration with PGNIG https://ebok.pgnig.pl/
+# PGNIG Sensor 
+
+This sensor is gathering gas usage data for PGNIG clients.
+
+It uses API from https://ebok.pgnig.pl/
+
+## Manual Configuration
 Sample configuration
 
 ```yaml
