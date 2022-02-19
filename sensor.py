@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import string
+from datetime import timedelta
 
 import homeassistant.helpers.config_validation as cv
 import requests
@@ -10,7 +11,8 @@ from homeassistant.components.sensor import SensorEntity, PLATFORM_SCHEMA, Senso
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, ENERGY_KILO_WATT_HOUR
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.util import Throttle
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_USERNAME): cv.string,
@@ -26,13 +28,15 @@ headers = {
     'Accept': 'application/json',
 }
 
+
 def setup_platform(
         hass: HomeAssistant,
         config: ConfigType,
-        add_entities: AddEntitiesCallback
+        add_entities: AddEntitiesCallback,
+        discovery_info: DiscoveryInfoType | None = None
 ) -> None:
     """Set up the sensor platform."""
-    authToken = login(CONF_USERNAME, CONF_PASSWORD)
+    authToken = login(config.get(CONF_USERNAME), config.get(CONF_PASSWORD))
 
     responseDevices = requests.get(url_devices_list, headers={
         'Content-Type': 'application/json',
@@ -54,7 +58,7 @@ def login(username, password):
                "DeviceId": "123",  # TODO randomize it
                "DeviceName": "Home Assistant: 99.9.999.99<br>",
                "DeviceType": "Web"}
-    response = requests.post(login_url, headers=headers, json=payload).json()
+    response = requests.request('POST', login_url, headers=headers, json=payload).json()
     return response.get('Token')
 
 
@@ -71,6 +75,8 @@ class PgnigSensor(SensorEntity):
         self.password = config.get(CONF_PASSWORD)
         self.entity_name = "pgnig_gas_sensor_" + meter_id
         self.meter_id = meter_id
+        self.entity_name = "PGNIG Gas Sensor " + meter_id
+        self.update = Throttle(timedelta(hours=24))(self._update)
 
     @property
     def name(self) -> str:
@@ -81,7 +87,7 @@ class PgnigSensor(SensorEntity):
         """Return the state of the sensor."""
         return self._state
 
-    def update(self) -> None:
+    def _update(self) -> None:
         """Fetch new state data for the sensor.
         This is the only method that should fetch new data for Home Assistant.
         """
