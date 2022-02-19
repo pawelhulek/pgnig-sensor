@@ -1,0 +1,6 @@
+{
+  "name": "PGNIG sensor",
+  "domains": ["sensor"],
+  "country": "PL",
+  "render_readme": true
+}
