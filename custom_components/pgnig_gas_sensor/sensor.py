@@ -73,10 +73,13 @@ class PgnigSensor(SensorEntity):
         self.hass = hass
         self.username = config.get(CONF_USERNAME)
         self.password = config.get(CONF_PASSWORD)
-        self.entity_name = "pgnig_gas_sensor_" + meter_id
         self.meter_id = meter_id
         self.entity_name = "PGNIG Gas Sensor " + meter_id
         self.update = Throttle(timedelta(hours=24))(self._update)
+
+    @property
+    def unique_id(self) -> str | None:
+        return "pgnig_sensor" + self.meter_id
 
     @property
     def name(self) -> str:
