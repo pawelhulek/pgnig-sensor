@@ -78,7 +78,6 @@ class PgnigSensor(SensorEntity):
         self.meter_id = meter_id
         self.entity_name = "PGNIG Gas Sensor " + meter_id
         self.update = Throttle(timedelta(hours=8))(self._update)
-        self._update()
 
     @property
     def unique_id(self) -> str | None:
