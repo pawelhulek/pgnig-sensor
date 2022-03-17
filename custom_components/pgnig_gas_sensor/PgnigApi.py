@@ -3,7 +3,7 @@ import string
 import requests
 
 from .Invoices import invoices_from_dict
-from .PgpList import PpgList, ppg_list_from_dict
+from .PgpList import (PpgList, ppg_list_from_dict)
 from .PpgReadingForMeter import PpgReadingForMeter, ppg_reading_for_meter_from_dict
 
 login_url = "https://ebok.pgnig.pl/auth/login?api-version=3.0"
@@ -14,7 +14,6 @@ headers = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
 }
-
 
 class PgnigApi:
 
