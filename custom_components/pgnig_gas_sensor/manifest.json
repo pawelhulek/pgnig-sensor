@@ -5,7 +5,7 @@
   "issue_tracker": "https://github.com/pawelhulek/pgnig-sensor/issues",
   "dependencies": [],
   "codeowners": [
-    "pawelhulek"
+    "@pawelhulek"
   ],
   "requirements": [],
   "iot_class": "cloud_polling",
