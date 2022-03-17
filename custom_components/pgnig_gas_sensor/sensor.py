@@ -15,6 +15,7 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import Throttle
 
 from .PgnigApi import PgnigApi
+from .PpgReadingForMeter import MeterReading
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -46,7 +47,7 @@ class PgnigSensor(SensorEntity):
         self._attr_native_unit_of_measurement = VOLUME_CUBIC_METERS
         self._attr_device_class = SensorDeviceClass.GAS
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
-        self._state = None
+        self._state: MeterReading | None = None
         self.hass = hass
         self.api = api
         self.meter_id = meter_id
@@ -64,17 +65,22 @@ class PgnigSensor(SensorEntity):
     @property
     def state(self):
         """Return the state of the sensor."""
+        if self._state is None:
+            return None
         return self._state.value
 
     @property
     def extra_state_attributes(self):
         attrs = dict()
-        attrs["wear"] = self._state.wear
-        attrs["wear_unit_of_measurment"] = VOLUME_CUBIC_METERS
+        if self._state is not None:
+            attrs["wear"] = self._state.wear
+            attrs["wear_unit_of_measurment"] = VOLUME_CUBIC_METERS
         return attrs
 
     def _update(self) -> None:
         """Fetch new state data for the sensor.
         This is the only method that should fetch new data for Home Assistant.
         """
-        self._state = max(self.api.readingForMeter(self.meter_id).meter_readings, key=lambda z: z.value)
+        latest_meter_reading: MeterReading = max(self.api.readingForMeter(self.meter_id).meter_readings,
+                                                 key=lambda z: z.value)
+        self._state = latest_meter_reading
