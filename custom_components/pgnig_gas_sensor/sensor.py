@@ -81,7 +81,7 @@ class PgnigSensor(SensorEntity):
     def device_info(self):
         return {
             "identifiers": {("pgnig_gas_sensor", self.meter_id)},
-            "name": f"eLicznik {self.meter_id}",
+            "name": f"PGNIG GAS METER ID {self.meter_id}",
             "manufacturer": "PGNIG",
             "model": self.meter_id,
             "via_device": None,
