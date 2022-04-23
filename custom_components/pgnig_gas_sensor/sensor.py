@@ -4,15 +4,13 @@ from __future__ import annotations
 import logging
 import string
 from datetime import timedelta
+from typing import Callable, Optional
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.sensor import SensorEntity, PLATFORM_SCHEMA, SensorStateClass, SensorDeviceClass
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, VOLUME_CUBIC_METERS
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-from homeassistant.util import Throttle
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType, HomeAssistantType
 
 from .PgnigApi import PgnigApi
 from .PpgReadingForMeter import MeterReading
@@ -22,22 +20,26 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_USERNAME): cv.string,
     vol.Required(CONF_PASSWORD): cv.string,
 })
+SCAN_INTERVAL = timedelta(hours=8)
 
 
-def setup_platform(
-        hass: HomeAssistant,
+async def async_setup_platform(
+        hass: HomeAssistantType,
         config: ConfigType,
-        add_entities: AddEntitiesCallback,
-        discovery_info: DiscoveryInfoType | None = None
+        async_add_entities: Callable,
+        discovery_info: Optional[DiscoveryInfoType] = None,
 ) -> None:
     """Set up the sensor platform."""
     api = PgnigApi(config.get(CONF_USERNAME), config.get(CONF_PASSWORD))
-    pgps = api.meterList()
+    try:
+        pgps = await hass.async_add_executor_job(api.meterList)
+    except Exception:
+        raise ValueError
 
     for x in pgps.ppg_list:
         meter_id = x.meter_number
-        add_entities(
-            [PgnigSensor(hass, api, meter_id)])
+        async_add_entities(
+            [PgnigSensor(hass, api, meter_id)], update_before_add=True)
 
 
 class PgnigSensor(SensorEntity):
@@ -52,7 +54,6 @@ class PgnigSensor(SensorEntity):
         self.api = api
         self.meter_id = meter_id
         self.entity_name = "PGNIG Gas Sensor " + meter_id
-        self.update = Throttle(timedelta(hours=8))(self._update)
 
     @property
     def unique_id(self) -> str | None:
@@ -77,10 +78,13 @@ class PgnigSensor(SensorEntity):
             attrs["wear_unit_of_measurment"] = VOLUME_CUBIC_METERS
         return attrs
 
-    def _update(self) -> None:
+    async def async_update(self):
         """Fetch new state data for the sensor.
         This is the only method that should fetch new data for Home Assistant.
         """
-        latest_meter_reading: MeterReading = max(self.api.readingForMeter(self.meter_id).meter_readings,
-                                                 key=lambda z: z.value)
+        latest_meter_reading: MeterReading = await self.hass.async_add_executor_job(self.latestMeterReading)
         self._state = latest_meter_reading
+
+    def latestMeterReading(self):
+        return max(self.api.readingForMeter(self.meter_id).meter_readings,
+                   key=lambda z: z.value)
