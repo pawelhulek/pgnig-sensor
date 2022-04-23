@@ -4,6 +4,7 @@
   "documentation": "https://github.com/pawelhulek/pgnig-sensor",
   "issue_tracker": "https://github.com/pawelhulek/pgnig-sensor/issues",
   "dependencies": [],
+  "config_flow": true,
   "codeowners": [
     "@pawelhulek"
   ],

@@ -1,0 +1,17 @@
+{
+  "title": "PGNIG gas sensor",
+  "config": {
+    "step": {
+      "init": {
+        "title": "Enter the credentials to your PGNIG EBOK",
+        "description": "This integration will add sensors to get gas usage data from PGNIG Sensor.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+    }
+  }
+}

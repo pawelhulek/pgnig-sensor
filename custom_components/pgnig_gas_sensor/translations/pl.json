@@ -1,0 +1,17 @@
+{
+  "title": "PGNIG gas sensor",
+  "config": {
+    "step": {
+      "init": {
+        "title": "Wpisz swoje dane autoryzacyjne do PGNIG EBOK",
+        "description": "Ta integracja dodaje sensory uzycia gazu na podstawie odczytów z EBOKu PGNIG",
+        "data": {
+          "username": "Login",
+          "password": "Hasło"
+        }
+      }
+    },
+    "error": {
+    }
+  }
+}
