@@ -170,8 +170,14 @@ class PgnigInvoiceSensor(SensorEntity):
         def toAmountToPay(x: InvoicesList):
             return x.amount_to_pay
 
-        next_payment_item = min(filter(closestPaymentDate, self.api.invoices().invoices_list), key=lambda z: z)
-        sum_of_unpaid_invoices = sum(map(toAmountToPay, self.api.invoices().invoices_list))
+        next_payment_item = min(filter(closestPaymentDate, self.api.invoices().invoices_list), key=lambda z: z,
+                                default=InvoicesList(None, None, None, None, None, None, None, None,
+                                                     None, None, None, None, None, None, None, None,
+                                                     None, None, None, None, None, None,
+                                                     None, None, None, None,
+                                                     None, None, None, None,
+                                                     None))
+        sum_of_unpaid_invoices = sum(map(toAmountToPay, filter(closestPaymentDate, self.api.invoices().invoices_list)))
 
         return {"sumOfUnpaidInvoices": sum_of_unpaid_invoices,
                 "nextPaymentDate": next_payment_item.paying_deadline_date,
