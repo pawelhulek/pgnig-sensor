@@ -155,6 +155,7 @@ class PgnigInvoiceSensor(SensorEntity):
         attrs = dict()
         if self._state is not None:
             attrs["next_payment_date"] = self._state.get("nextPaymentDate")
+            attrs["next_payment_amount_to_pay"] = self._state.get("nextPaymentAmountToPay")
             attrs["next_payment_wear"] = self._state.get("nextPaymentWear")
             attrs["next_payment_wear_KWH"] = self._state.get("nextPaymentWearKWH")
         return attrs
@@ -169,12 +170,10 @@ class PgnigInvoiceSensor(SensorEntity):
         def toAmountToPay(x: InvoicesList):
             return x.amount_to_pay
 
-        nextPaymentItem = min(filter(closestPaymentDate, self.api.invoices().invoices_list), key=lambda z: z)
-        sumOfUnpaidInvoices = sum(map(toAmountToPay, self.api.invoices().invoices_list))
+        next_payment_item = min(filter(closestPaymentDate, self.api.invoices().invoices_list), key=lambda z: z)
+        sum_of_unpaid_invoices = sum(map(toAmountToPay, self.api.invoices().invoices_list))
 
-        return {"sumOfUnpaidInvoices": sumOfUnpaidInvoices, "nextPaymentDate": nextPaymentItem.paying_deadline_date,
-                "nextPaymentWear": nextPaymentItem.wear, "nextPaymentWearKWH": nextPaymentItem.wear_kwh}
-
-    def sumOfUnpaidInvoices(self):
-
-        return sum(map(toAmountToPay, self.api.invoices().invoices_list))
+        return {"sumOfUnpaidInvoices": sum_of_unpaid_invoices,
+                "nextPaymentDate": next_payment_item.paying_deadline_date,
+                "nextPaymentWear": next_payment_item.wear, "nextPaymentWearKWH": next_payment_item.wear_kwh,
+                "nextPaymentAmountToPay": next_payment_item.amount_to_pay}
