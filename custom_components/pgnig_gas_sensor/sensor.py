@@ -60,7 +60,7 @@ async def async_setup_platform(
     for x in pgps.ppg_list:
         meter_id = x.meter_number
         async_add_entities(
-            [PgnigSensor(hass, api, meter_id), PgnigInvoiceSensor(hass, api, meter_id)], update_before_add=True)
+            [PgnigSensor(hass, api, meter_id), PgnigInvoiceSensor(hass, api, meter_id, x.id_local)], update_before_add=True)
 
 
 class PgnigSensor(SensorEntity):
@@ -116,7 +116,7 @@ class PgnigSensor(SensorEntity):
 
 
 class PgnigInvoiceSensor(SensorEntity):
-    def __init__(self, hass, api: PgnigApi, meter_id: string) -> None:
+    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: string) -> None:
         self._attr_native_unit_of_measurement = "PLN"
         self._attr_device_class = SensorDeviceClass.MONETARY
         self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -124,6 +124,7 @@ class PgnigInvoiceSensor(SensorEntity):
         self.hass = hass
         self.api = api
         self.meter_id = meter_id
+        self.id_local = id_local
         self.entity_name = "PGNIG Gas Invoice Sensor " + meter_id
 
     @property
@@ -161,23 +162,26 @@ class PgnigInvoiceSensor(SensorEntity):
         return attrs
 
     async def async_update(self):
-        self._state = await self.hass.async_add_executor_job(self.invoicesSummary)
+        self._state = await self.hass.async_add_executor_job(self.invoices_summary)
 
-    def invoicesSummary(self):
-        def closestPaymentDate(x: InvoicesList):
-            return x.status == 'NotPaid'
+    def invoices_summary(self):
+        id_local = self.id_local
 
-        def toAmountToPay(x: InvoicesList):
+        def upcoming_payment_for_meter(x: InvoicesList):
+            return id_local == x.id_pp and x.status == 'NotPaid'
+
+        def to_amount_to_pay(x: InvoicesList):
             return x.amount_to_pay
 
-        next_payment_item = min(filter(closestPaymentDate, self.api.invoices().invoices_list), key=lambda z: z,
+        next_payment_item = min(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list), key=lambda z: z,
                                 default=InvoicesList(None, None, None, None, None, None, None, None,
                                                      None, None, None, None, None, None, None, None,
                                                      None, None, None, None, None, None,
                                                      None, None, None, None,
                                                      None, None, None, None,
                                                      None))
-        sum_of_unpaid_invoices = sum(map(toAmountToPay, filter(closestPaymentDate, self.api.invoices().invoices_list)))
+
+        sum_of_unpaid_invoices = sum(map(to_amount_to_pay, filter(upcoming_payment_for_meter, self.api.invoices().invoices_list)))
 
         return {"sumOfUnpaidInvoices": sum_of_unpaid_invoices,
                 "nextPaymentDate": next_payment_item.paying_deadline_date,
