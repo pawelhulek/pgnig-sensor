@@ -42,7 +42,7 @@ async def async_setup_entry(
     for x in pgps.ppg_list:
         meter_id = x.meter_number
         async_add_entities(
-            [PgnigSensor(hass, api, meter_id), PgnigInvoiceSensor(hass, api, meter_id)], update_before_add=True)
+            [PgnigSensor(hass, api, meter_id), PgnigInvoiceSensor(hass, api, meter_id, x.id_local)], update_before_add=True)
 
 
 async def async_setup_platform(
