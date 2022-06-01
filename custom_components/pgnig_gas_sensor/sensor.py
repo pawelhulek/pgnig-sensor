@@ -59,14 +59,14 @@ async def async_setup_platform(
         raise ValueError
 
     for x in pgps.ppg_list:
-        meter_id = x.meter_number
         async_add_entities(
-            [PgnigSensor(hass, api, meter_id, x.id_local), PgnigInvoiceSensor(hass, api, meter_id, x.id_local)],
+            [PgnigSensor(hass, api, x.meter_number, x.id_local),
+             PgnigInvoiceSensor(hass, api, x.meter_number, x.id_local)],
             update_before_add=True)
 
 
 class PgnigSensor(SensorEntity):
-    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: string) -> None:
+    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
         self._attr_native_unit_of_measurement = VOLUME_CUBIC_METERS
         self._attr_device_class = SensorDeviceClass.GAS
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
@@ -75,11 +75,11 @@ class PgnigSensor(SensorEntity):
         self.api = api
         self.meter_id = meter_id
         self.id_local = id_local
-        self.entity_name = "PGNIG Gas Sensor " + meter_id + " " + id_local
+        self.entity_name = "PGNIG Gas Sensor " + meter_id + " " + str(id_local)
 
     @property
     def unique_id(self) -> str | None:
-        return "pgnig_sensor" + self.meter_id + "_" + self.id_local
+        return "pgnig_sensor" + self.meter_id + "_" + str(self.id_local)
 
     @property
     def device_info(self):
@@ -119,7 +119,7 @@ class PgnigSensor(SensorEntity):
 
 
 class PgnigInvoiceSensor(SensorEntity):
-    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: string) -> None:
+    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
         self._attr_native_unit_of_measurement = "PLN"
         self._attr_device_class = SensorDeviceClass.MONETARY
         self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -128,11 +128,11 @@ class PgnigInvoiceSensor(SensorEntity):
         self.api = api
         self.meter_id = meter_id
         self.id_local = id_local
-        self.entity_name = "PGNIG Gas Invoice Sensor " + meter_id+ " " + id_local
+        self.entity_name = "PGNIG Gas Invoice Sensor " + meter_id + " " + str(id_local)
 
     @property
     def unique_id(self) -> str | None:
-        return "pgnig_invoice_sensor" + self.meter_id+ "_" + self.id_local
+        return "pgnig_invoice_sensor" + self.meter_id + "_" + str(self.id_local)
 
     @property
     def device_info(self):
