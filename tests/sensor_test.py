@@ -1,8 +1,12 @@
+
 from datetime import datetime
 
-from pgnig_gas_sensor.PpgReadingForMeter import MeterReading, PpgReadingForMeter
-from pytest_homeassistant_custom_component.async_mock import AsyncMock, MagicMock
+from pytest_homeassistant_custom_component.async_mock import MagicMock
 
+from custom_components.pgnig_gas_sensor.PpgReadingForMeter import (
+    MeterReading,
+    PpgReadingForMeter,
+)
 from custom_components.pgnig_gas_sensor.sensor import PgnigSensor
 
 
