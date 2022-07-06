@@ -1,7 +1,9 @@
+"""Pgnig sensor test pack."""
 
 from datetime import datetime
+from unittest.mock import MagicMock
 
-from pytest_homeassistant_custom_component.async_mock import MagicMock
+from homeassistant.core import HomeAssistant
 
 from custom_components.pgnig_gas_sensor.PpgReadingForMeter import (
     MeterReading,
@@ -10,14 +12,15 @@ from custom_components.pgnig_gas_sensor.PpgReadingForMeter import (
 from custom_components.pgnig_gas_sensor.sensor import PgnigSensor
 
 
-async def test_newer_takes_precedence(hass):
+async def test_newer_takes_precedence(hass: HomeAssistant):
+    """Pgnig sensor test - test_newer_takes_precedence."""
     # given
     pgnig_api = MagicMock()
-    reading_newer = anyMeterReading()
+    reading_newer = any_meter_reading()
     reading_newer.reading_date_utc = datetime(2022, 7, 5)
     reading_newer.value = 2
 
-    reading_older = anyMeterReading()
+    reading_older = any_meter_reading()
     reading_older.reading_date_utc = datetime(2022, 7, 4)
     reading_older.value = 3
     pgnig_api.readingForMeter = MagicMock(return_value=(
@@ -32,7 +35,8 @@ async def test_newer_takes_precedence(hass):
     assert sensor._state.value == 2
 
 
-def anyMeterReading():
+def any_meter_reading():
+    """Any helper method for meter reading template."""
     return MeterReading(status="",
                         reading_date_local=datetime(2022, 6, 6),
                         reading_date_utc=datetime(2022, 6, 6),
