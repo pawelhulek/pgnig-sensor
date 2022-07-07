@@ -38,7 +38,7 @@ friendly_name: PGNIG Gas Sensor 1111111111111111111111
 ### Running tests
 
 ```bash
-$ pip3 install -r requirements.test.txt
+$ pip3 install -r requirements_test.txt
 ```
 
 The dependencies are installed - you can invoke `pytest` to run the tests.
