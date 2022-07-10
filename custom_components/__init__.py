@@ -1,0 +1,1 @@
+"""Pgnig sensor"""
