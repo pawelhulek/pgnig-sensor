@@ -69,7 +69,10 @@ class PpgListElement:
         assert isinstance(obj, dict)
         id_ppg = from_str(obj.get("IdPPG"))
         meter_number = from_str(obj.get("MeterNumber"))
-        reading_date_utc = from_datetime(obj.get("ReadingDateUtc"))
+        if obj.get("ReadingDateUtc") is not None:
+            reading_date_utc = from_datetime(obj.get("ReadingDateUtc"))
+        else:
+            reading_date_utc = datetime.utcnow()
         contract_number = from_str(obj.get("ContractNumber"))
         has_t12 = from_bool(obj.get("HasT12"))
         reading_added = from_bool(obj.get("ReadingAdded"))
