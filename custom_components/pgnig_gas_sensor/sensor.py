@@ -176,7 +176,8 @@ class PgnigInvoiceSensor(SensorEntity):
         def to_amount_to_pay(x: InvoicesList):
             return x.amount_to_pay
 
-        next_payment_item = min(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list), key=lambda z: z,
+        next_payment_item = min(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list),
+                                key=lambda z: z.date,
                                 default=InvoicesList(None, None, None, None, None, None, None, None,
                                                      None, None, None, None, None, None, None, None,
                                                      None, None, None, None, None, None,
