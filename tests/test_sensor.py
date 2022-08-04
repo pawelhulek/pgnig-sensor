@@ -9,7 +9,8 @@ from custom_components.pgnig_gas_sensor.PpgReadingForMeter import (
     MeterReading,
     PpgReadingForMeter,
 )
-from custom_components.pgnig_gas_sensor.sensor import PgnigSensor
+from custom_components.pgnig_gas_sensor.sensor import PgnigSensor, PgnigInvoiceSensor
+from custom_components.pgnig_gas_sensor.Invoices import Invoices, InvoicesList
 
 
 async def test_newer_takes_precedence(hass: HomeAssistant):
@@ -33,6 +34,55 @@ async def test_newer_takes_precedence(hass: HomeAssistant):
     await sensor.async_update()
     # then
     assert sensor._state.value == 2
+
+
+async def test_multiple_invocies(hass: HomeAssistant):
+    """Pgnig sensor test - test_multiple_invocies."""
+    pgnig_api = MagicMock()
+    pgnig_api.invoices = MagicMock(return_value=(Invoices(invoices_list=[any_invoice(), any_invoice()],
+                                                          code=0, message=None,
+                                                          display_to_end_user=None,
+                                                          token_expire_date=None, allow_load_after30_days=None,
+                                                          has_non_paid_forecast=None,
+                                                          token_expire_date_utc=None, end_user_message=None)))
+    sensor = PgnigInvoiceSensor(hass, pgnig_api, '12', 1)
+    await sensor.async_update()
+    # then
+    assert sensor._state.get('nextPaymentAmountToPay') == 1
+
+
+def any_invoice() -> InvoicesList:
+    return InvoicesList(number="a",
+                        date=datetime(2022, 6, 6),
+                        sell_date=datetime(2022, 6, 6),
+                        gross_amount=22,
+                        amount_to_pay=1,
+                        wear=1,
+                        wear_kwh=1,
+                        paying_deadline_date=datetime(2022, 6, 6),
+                        start_date=datetime(2022, 6, 6),
+                        end_date=datetime(2022, 6, 6),
+                        is_paid=False,
+                        id_pp=1,
+                        type='a',
+                        temp_type='a',
+                        days_remaining_to_deadline=1,
+                        has_iban=True,
+                        status='a',
+                        pdf_exists=True,
+                        is_interest_note=True,
+                        color='a',
+                        agreement_name='a',
+                        agreement_number='a',
+                        is_additional_agreement=True,
+                        agreement_end_date=None,
+                        agreement_expired=True,
+                        pdf_print_allowed=True,
+                        payment_process_allowed=True,
+                        agreement_has_card=True,
+                        automatic_payment_date=datetime(2022, 6, 6),
+                        is_insurance_policy=True,
+                        is_lawyer_agreement=True)
 
 
 def any_meter_reading():

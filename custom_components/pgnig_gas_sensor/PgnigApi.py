@@ -2,7 +2,7 @@ import string
 
 import requests
 
-from .Invoices import invoices_from_dict
+from .Invoices import invoices_from_dict, Invoices
 from .PgpList import (PpgList, ppg_list_from_dict)
 from .PpgReadingForMeter import PpgReadingForMeter, ppg_reading_for_meter_from_dict
 
@@ -37,7 +37,7 @@ class PgnigApi:
             'AuthToken': (self.login())
         }).json())
 
-    def invoices(self):
+    def invoices(self) -> Invoices:
         return invoices_from_dict(requests.get(invoices_url, headers={
             'Content-Type': 'application/json',
             'Accept': 'application/json',
