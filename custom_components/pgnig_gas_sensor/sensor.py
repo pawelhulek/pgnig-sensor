@@ -42,7 +42,9 @@ async def async_setup_entry(
     for x in pgps.ppg_list:
         meter_id = x.meter_number
         async_add_entities(
-            [PgnigSensor(hass, api, meter_id, x.id_local), PgnigInvoiceSensor(hass, api, meter_id, x.id_local)],
+            [PgnigSensor(hass, api, meter_id, x.id_local),
+             PgnigInvoiceSensor(hass, api, meter_id, x.id_local),
+             PgnigCostTrackingSensor(hass, api, meter_id, x.id_local)],
             update_before_add=True)
 
 
@@ -61,7 +63,8 @@ async def async_setup_platform(
     for x in pgps.ppg_list:
         async_add_entities(
             [PgnigSensor(hass, api, x.meter_number, x.id_local),
-             PgnigInvoiceSensor(hass, api, x.meter_number, x.id_local)],
+             PgnigInvoiceSensor(hass, api, x.meter_number, x.id_local),
+             PgnigCostTrackingSensor(hass, api, x.meter_number, x.id_local)],
             update_before_add=True)
 
 
@@ -192,3 +195,58 @@ class PgnigInvoiceSensor(SensorEntity):
                 "nextPaymentDate": next_payment_item.paying_deadline_date,
                 "nextPaymentWear": next_payment_item.wear, "nextPaymentWearKWH": next_payment_item.wear_kwh,
                 "nextPaymentAmountToPay": next_payment_item.amount_to_pay}
+
+
+class PgnigCostTrackingSensor(SensorEntity):
+    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
+        self._attr_native_unit_of_measurement = "PLN/kWh"
+        self._attr_device_class = SensorDeviceClass.MONETARY
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._state: InvoicesList | None = None
+        self.hass = hass
+        self.api = api
+        self.meter_id = meter_id
+        self.id_local = id_local
+        self.entity_name = "PGNIG Gas Cost Tracking Sensor " + meter_id + " " + str(id_local)
+
+    @property
+    def unique_id(self) -> str | None:
+        return "pgnig_cost_tracking_sensor" + self.meter_id + "_" + str(self.id_local)
+
+    @property
+    def name(self) -> str:
+        return self.entity_name
+
+    @property
+    def state(self):
+        if self._state is None:
+            return None
+        return self._state.gross_amount / self._state.wear_kwh
+
+    @property
+    def extra_state_attributes(self):
+        attrs = dict()
+        if self._state is not None:
+            attrs["last_invoice_date"] = self._state.paying_deadline_date
+            attrs["last_invoice_gross_amount"] = self._state.gross_amount
+            attrs["last_invoice_wear"] = self._state.wear
+            attrs["last_invoice_wear_KWH"] = self._state.wear_kwh
+        return attrs
+
+    async def async_update(self):
+        self._state = await self.hass.async_add_executor_job(self.latest_price)
+
+    def latest_price(self):
+        id_local = self.id_local
+
+        def upcoming_payment_for_meter(x: InvoicesList):
+            return id_local == x.id_pp
+
+        return min(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list),
+                                key=lambda z: z.date,
+                                default=InvoicesList(None, None, None, None, None, None, None, None,
+                                                     None, None, None, None, None, None, None, None,
+                                                     None, None, None, None, None, None,
+                                                     None, None, None, None,
+                                                     None, None, None, None,
+                                                     None))
