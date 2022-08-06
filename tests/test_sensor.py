@@ -9,7 +9,7 @@ from custom_components.pgnig_gas_sensor.PpgReadingForMeter import (
     MeterReading,
     PpgReadingForMeter,
 )
-from custom_components.pgnig_gas_sensor.sensor import PgnigSensor, PgnigInvoiceSensor
+from custom_components.pgnig_gas_sensor.sensor import PgnigSensor, PgnigInvoiceSensor, PgnigCostTrackingSensor
 from custom_components.pgnig_gas_sensor.Invoices import Invoices, InvoicesList
 
 
@@ -49,6 +49,24 @@ async def test_multiple_invocies(hass: HomeAssistant):
     await sensor.async_update()
     # then
     assert sensor._state.get('nextPaymentAmountToPay') == 1
+
+
+async def test_latest_price(hass: HomeAssistant):
+    """Pgnig sensor test - test_multiple_invocies."""
+    pgnig_api = MagicMock()
+    invoice = any_invoice()
+    invoice.amount_to_pay = 10
+    invoice.wear_kwh = 1
+    pgnig_api.invoices = MagicMock(return_value=(Invoices(invoices_list=[invoice],
+                                                          code=0, message=None,
+                                                          display_to_end_user=None,
+                                                          token_expire_date=None, allow_load_after30_days=None,
+                                                          has_non_paid_forecast=None,
+                                                          token_expire_date_utc=None, end_user_message=None)))
+    sensor = PgnigCostTrackingSensor(hass, pgnig_api, '12', 1)
+    await sensor.async_update()
+    # then
+    assert sensor._state == 10.0
 
 
 def any_invoice() -> InvoicesList:
