@@ -55,7 +55,7 @@ async def test_latest_price(hass: HomeAssistant):
     """Pgnig sensor test - test_multiple_invocies."""
     pgnig_api = MagicMock()
     invoice = any_invoice()
-    invoice.amount_to_pay = 10
+    invoice.gross_amount = 10
     invoice.wear_kwh = 1
     pgnig_api.invoices = MagicMock(return_value=(Invoices(invoices_list=[invoice],
                                                           code=0, message=None,
@@ -66,7 +66,7 @@ async def test_latest_price(hass: HomeAssistant):
     sensor = PgnigCostTrackingSensor(hass, pgnig_api, '12', 1)
     await sensor.async_update()
     # then
-    assert sensor._state == 10.0
+    assert sensor.state == 10.0
 
 
 def any_invoice() -> InvoicesList:
