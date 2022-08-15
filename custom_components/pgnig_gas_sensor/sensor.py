@@ -242,7 +242,7 @@ class PgnigCostTrackingSensor(SensorEntity):
         def upcoming_payment_for_meter(x: InvoicesList):
             return id_local == x.id_pp
 
-        return min(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list),
+        return max(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list),
                                 key=lambda z: z.date,
                                 default=InvoicesList(None, None, None, None, None, None, None, None,
                                                      None, None, None, None, None, None, None, None,
