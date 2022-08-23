@@ -199,7 +199,7 @@ class PgnigInvoiceSensor(SensorEntity):
 
 class PgnigCostTrackingSensor(SensorEntity):
     def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
-        self._attr_native_unit_of_measurement = "PLN/kWh"
+        self._attr_native_unit_of_measurement = "PLN/m³"
         self._attr_device_class = SensorDeviceClass.MONETARY
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._state: InvoicesList | None = None
@@ -221,7 +221,7 @@ class PgnigCostTrackingSensor(SensorEntity):
     def state(self):
         if self._state is None:
             return None
-        return self._state.gross_amount / self._state.wear_kwh
+        return self._state.gross_amount / self._state.wear
 
     @property
     def extra_state_attributes(self):
@@ -240,13 +240,13 @@ class PgnigCostTrackingSensor(SensorEntity):
         id_local = self.id_local
 
         def upcoming_payment_for_meter(x: InvoicesList):
-            return id_local == x.id_pp
+            return id_local == x.id_pp and x.wear is not None and x.wear != 0
 
         return max(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list),
-                                key=lambda z: z.date,
-                                default=InvoicesList(None, None, None, None, None, None, None, None,
-                                                     None, None, None, None, None, None, None, None,
-                                                     None, None, None, None, None, None,
-                                                     None, None, None, None,
-                                                     None, None, None, None,
-                                                     None))
+                   key=lambda z: z.date,
+                   default=InvoicesList(None, None, None, None, None, None, None, None,
+                                        None, None, None, None, None, None, None, None,
+                                        None, None, None, None, None, None,
+                                        None, None, None, None,
+                                        None, None, None, None,
+                                        None))
