@@ -221,6 +221,8 @@ class PgnigCostTrackingSensor(SensorEntity):
     def state(self):
         if self._state is None:
             return None
+        if self._state.gross_amount is None or self._state.wear is None:
+            return None
         return self._state.gross_amount / self._state.wear
 
     @property
@@ -240,7 +242,11 @@ class PgnigCostTrackingSensor(SensorEntity):
         id_local = self.id_local
 
         def upcoming_payment_for_meter(x: InvoicesList):
-            return id_local == x.id_pp and x.wear is not None and x.wear != 0
+            return id_local == x.id_pp \
+                   and x.wear is not None \
+                   and x.wear != 0 \
+                   and x.gross_amount is not None \
+                   and x.gross_amount != 0
 
         return max(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list),
                    key=lambda z: z.date,
