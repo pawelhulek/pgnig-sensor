@@ -121,6 +121,40 @@ async def test_non_zero_latest_price(hass: HomeAssistant):
     assert sensor.state == 2.0
 
 
+async def test_gross_amount_is_none(hass: HomeAssistant):
+    """Pgnig sensor test - test_multiple_invocies."""
+    pgnig_api = MagicMock()
+    invoice = any_invoice()
+    invoice.gross_amount = None
+    invoice.wear = 1
+    pgnig_api.invoices = MagicMock(return_value=(Invoices(invoices_list=[invoice],
+                                                          code=0, message=None,
+                                                          display_to_end_user=None,
+                                                          token_expire_date=None, allow_load_after30_days=None,
+                                                          has_non_paid_forecast=None,
+                                                          token_expire_date_utc=None, end_user_message=None)))
+    sensor = PgnigCostTrackingSensor(hass, pgnig_api, '12', 1)
+    await sensor.async_update()
+    # then
+    assert sensor.state == None
+
+async def test_wear_is_none(hass: HomeAssistant):
+    """Pgnig sensor test - test_multiple_invocies."""
+    pgnig_api = MagicMock()
+    invoice = any_invoice()
+    invoice.gross_amount = 1
+    invoice.wear = None
+    pgnig_api.invoices = MagicMock(return_value=(Invoices(invoices_list=[invoice],
+                                                          code=0, message=None,
+                                                          display_to_end_user=None,
+                                                          token_expire_date=None, allow_load_after30_days=None,
+                                                          has_non_paid_forecast=None,
+                                                          token_expire_date_utc=None, end_user_message=None)))
+    sensor = PgnigCostTrackingSensor(hass, pgnig_api, '12', 1)
+    await sensor.async_update()
+    # then
+    assert sensor.state == None
+
 def any_invoice() -> InvoicesList:
     return InvoicesList(number="a",
                         date=datetime(2022, 6, 6),
