@@ -184,7 +184,7 @@ class PgnigInvoiceSensor(SensorEntity):
                                 default=InvoicesList(None, None, None, None, None, None, None, None,
                                                      None, None, None, None, None, None, None, None,
                                                      None, None, None, None, None, None,
-                                                     None, None, None, None,
+                                                     None, None, None,
                                                      None, None, None, None,
                                                      None))
 
