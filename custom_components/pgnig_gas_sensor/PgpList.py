@@ -45,7 +45,6 @@ def to_class(c: Type[T], x: Any) -> dict:
 class PpgListElement:
     id_ppg: str
     meter_number: str
-    reading_date_utc: datetime
     contract_number: str
     has_t12: bool
     reading_added: bool
@@ -69,7 +68,6 @@ class PpgListElement:
         assert isinstance(obj, dict)
         id_ppg = from_str(obj.get("IdPPG"))
         meter_number = from_str(obj.get("MeterNumber"))
-        reading_date_utc = from_datetime(obj.get("ReadingDateUtc"))
         contract_number = from_str(obj.get("ContractNumber"))
         has_t12 = from_bool(obj.get("HasT12"))
         reading_added = from_bool(obj.get("ReadingAdded"))
@@ -87,11 +85,10 @@ class PpgListElement:
         is_in_migration_rk = from_bool(obj.get("IsInMigrationRK"))
         is_in_migration_rw = from_bool(obj.get("IsInMigrationRW"))
         is_company = from_bool(obj.get("IsCompany"))
-        return PpgListElement(id_ppg, meter_number, reading_date_utc, contract_number, has_t12, reading_added, tariff, has_history, type, id_local, client_number, installation_number, color, agreement_name, can_create_home_assistant, add_reading_mode, is_in_migration, is_in_migration_rk, is_in_migration_rw, is_company)
+        return PpgListElement(id_ppg, meter_number, contract_number, has_t12, reading_added, tariff, has_history, type, id_local, client_number, installation_number, color, agreement_name, can_create_home_assistant, add_reading_mode, is_in_migration, is_in_migration_rk, is_in_migration_rw, is_company)
 
     def to_dict(self) -> dict:
         result: dict = {"IdPPG": from_str(self.id_ppg), "MeterNumber": from_str(self.meter_number),
-                        "ReadingDateUtc": self.reading_date_utc.isoformat(),
                         "ContractNumber": from_str(self.contract_number), "HasT12": from_bool(self.has_t12),
                         "ReadingAdded": from_bool(self.reading_added), "Tariff": from_str(self.tariff),
                         "HasHistory": from_bool(self.has_history), "Type": from_str(self.type),

@@ -72,7 +72,6 @@ class InvoicesList:
     pdf_print_allowed: bool
     payment_process_allowed: bool
     agreement_has_card: bool
-    automatic_payment_date: datetime
     is_insurance_policy: bool
     is_lawyer_agreement: bool
 
@@ -107,14 +106,13 @@ class InvoicesList:
         pdf_print_allowed = from_bool(obj.get("PDFPrintAllowed"))
         payment_process_allowed = from_bool(obj.get("PaymentProcessAllowed"))
         agreement_has_card = from_bool(obj.get("AgreementHasCard"))
-        automatic_payment_date = from_datetime(obj.get("AutomaticPaymentDate"))
         is_insurance_policy = from_bool(obj.get("IsInsurancePolicy"))
         is_lawyer_agreement = from_bool(obj.get("IsLawyerAgreement"))
         return InvoicesList(number, date, sell_date, gross_amount, amount_to_pay, wear, wear_kwh, paying_deadline_date,
                             start_date, end_date, is_paid, id_pp, type, temp_type, days_remaining_to_deadline, has_iban,
                             status, pdf_exists, is_interest_note, color, agreement_name, agreement_number,
                             is_additional_agreement, agreement_end_date, agreement_expired, pdf_print_allowed,
-                            payment_process_allowed, agreement_has_card, automatic_payment_date, is_insurance_policy,
+                            payment_process_allowed, agreement_has_card, is_insurance_policy,
                             is_lawyer_agreement)
 
     def to_dict(self) -> dict:
@@ -136,7 +134,6 @@ class InvoicesList:
                         "PDFPrintAllowed": from_bool(self.pdf_print_allowed),
                         "PaymentProcessAllowed": from_bool(self.payment_process_allowed),
                         "AgreementHasCard": from_bool(self.agreement_has_card),
-                        "AutomaticPaymentDate": self.automatic_payment_date.isoformat(),
                         "IsInsurancePolicy": from_bool(self.is_insurance_policy),
                         "IsLawyerAgreement": from_bool(self.is_lawyer_agreement)}
         return result

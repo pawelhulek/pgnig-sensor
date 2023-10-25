@@ -184,7 +184,6 @@ def any_invoice() -> InvoicesList:
                         pdf_print_allowed=True,
                         payment_process_allowed=True,
                         agreement_has_card=True,
-                        automatic_payment_date=datetime(2022, 6, 6),
                         is_insurance_policy=True,
                         is_lawyer_agreement=True)
 
