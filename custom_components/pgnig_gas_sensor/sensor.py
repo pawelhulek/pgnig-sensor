@@ -10,9 +10,10 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.sensor import SensorEntity, PLATFORM_SCHEMA, SensorStateClass, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, VOLUME_CUBIC_METERS
+from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType, HomeAssistantType
+
 
 from .Invoices import InvoicesList
 from .PgnigApi import PgnigApi
@@ -70,7 +71,7 @@ async def async_setup_platform(
 
 class PgnigSensor(SensorEntity):
     def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
-        self._attr_native_unit_of_measurement = VOLUME_CUBIC_METERS
+        self._attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
         self._attr_device_class = SensorDeviceClass.GAS
         self._attr_state_class = SensorStateClass.TOTAL_INCREASING
         self._state: MeterReading | None = None
@@ -109,7 +110,7 @@ class PgnigSensor(SensorEntity):
         attrs = dict()
         if self._state is not None:
             attrs["wear"] = self._state.wear
-            attrs["wear_unit_of_measurment"] = VOLUME_CUBIC_METERS
+            attrs["wear_unit_of_measurment"] = UnitOfVolume.CUBIC_METERS
         return attrs
 
     async def async_update(self):
@@ -214,6 +215,16 @@ class PgnigCostTrackingSensor(SensorEntity):
         return "pgnig_cost_tracking_sensor" + self.meter_id + "_" + str(self.id_local)
 
     @property
+    def device_info(self):
+        return {
+            "identifiers": {("pgnig_gas_sensor", self.meter_id)},
+            "name": f"PGNIG GAS METER ID {self.meter_id}",
+            "manufacturer": "PGNIG",
+            "model": self.meter_id,
+            "via_device": None,
+        }
+
+    @property
     def name(self) -> str:
         return self.entity_name
 
@@ -243,10 +254,10 @@ class PgnigCostTrackingSensor(SensorEntity):
 
         def upcoming_payment_for_meter(x: InvoicesList):
             return id_local == x.id_pp \
-                   and x.wear is not None \
-                   and x.wear != 0 \
-                   and x.gross_amount is not None \
-                   and x.gross_amount != 0
+                and x.wear is not None \
+                and x.wear != 0 \
+                and x.gross_amount is not None \
+                and x.gross_amount != 0
 
         return max(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list),
                    key=lambda z: z.date,
