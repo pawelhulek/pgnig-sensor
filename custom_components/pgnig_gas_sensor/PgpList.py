@@ -22,7 +22,6 @@ def from_bool(x: Any) -> bool:
 
 
 def from_list(f: Callable[[Any], T], x: Any) -> List[T]:
-    assert isinstance(x, list)
     return [f(y) for y in x]
 
 
@@ -115,7 +114,6 @@ class PpgList:
 
     @staticmethod
     def from_dict(obj: Any) -> 'PpgList':
-        assert isinstance(obj, dict)
         ppg_list = from_list(PpgListElement.from_dict, obj.get("PpgList"))
         code = from_int(obj.get("Code"))
         message = from_none(obj.get("Message"))

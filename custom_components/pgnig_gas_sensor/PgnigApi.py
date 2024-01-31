@@ -15,6 +15,7 @@ headers = {
     'Accept': 'application/json',
 }
 
+
 class PgnigApi:
 
     def __init__(self, username, password) -> None:
@@ -22,13 +23,11 @@ class PgnigApi:
         self.password = password
 
     def meterList(self) -> PpgList:
-        dictionary = requests.get(devices_list_url, headers={
+        return ppg_list_from_dict(requests.get(devices_list_url, headers={
             'Content-Type': 'application/json',
             'Accept': 'application/json',
             'AuthToken': self.login()
-        }).json()
-
-        return ppg_list_from_dict(dictionary)
+        }).json())
 
     def readingForMeter(self, meter_id) -> PpgReadingForMeter:
         return ppg_reading_for_meter_from_dict(requests.get(readings_url + meter_id, headers={
