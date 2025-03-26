@@ -28,9 +28,7 @@ async def async_setup_entry(hass, config_entry):
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
 
-    hass.async_create_task(
-        hass.config_entries.async_forward_entry_setup(config_entry, "sensor")
-    )
+    await hass.config_entries.async_forward_entry_setup(config_entry, "sensor")
     return True
 
 
