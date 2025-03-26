@@ -12,7 +12,7 @@ from homeassistant.components.sensor import SensorEntity, PLATFORM_SCHEMA, Senso
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, UnitOfVolume
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType, HomeAssistantType
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 
 from .Invoices import InvoicesList
@@ -50,7 +50,7 @@ async def async_setup_entry(
 
 
 async def async_setup_platform(
-        hass: HomeAssistantType,
+        hass: HomeAssistant,
         config: ConfigType,
         async_add_entities: Callable,
         discovery_info: Optional[DiscoveryInfoType] = None,
