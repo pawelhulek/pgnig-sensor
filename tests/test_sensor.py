@@ -3,6 +3,7 @@
 from datetime import datetime
 from unittest.mock import MagicMock
 
+import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.pgnig_gas_sensor.PpgReadingForMeter import (
@@ -13,6 +14,7 @@ from custom_components.pgnig_gas_sensor.sensor import PgnigSensor, PgnigInvoiceS
 from custom_components.pgnig_gas_sensor.Invoices import Invoices, InvoicesList
 
 
+@pytest.mark.asyncio
 async def test_newer_takes_precedence(hass: HomeAssistant):
     """Pgnig sensor test - test_newer_takes_precedence."""
     # given
@@ -36,6 +38,7 @@ async def test_newer_takes_precedence(hass: HomeAssistant):
     assert sensor._state.value == 2
 
 
+@pytest.mark.asyncio
 async def test_multiple_invocies(hass: HomeAssistant):
     """Pgnig sensor test - test_multiple_invocies."""
     pgnig_api = MagicMock()
@@ -51,6 +54,7 @@ async def test_multiple_invocies(hass: HomeAssistant):
     assert sensor._state.get('nextPaymentAmountToPay') == 1
 
 
+@pytest.mark.asyncio
 async def test_a_price(hass: HomeAssistant):
     """Pgnig sensor test - test_multiple_invocies."""
     pgnig_api = MagicMock()
@@ -68,6 +72,7 @@ async def test_a_price(hass: HomeAssistant):
     # then
     assert sensor.state == 10.0
 
+@pytest.mark.asyncio
 async def test_latest_price(hass: HomeAssistant):
     """Pgnig sensor test - test_multiple_invocies."""
     pgnig_api = MagicMock()
@@ -91,6 +96,7 @@ async def test_latest_price(hass: HomeAssistant):
     await sensor.async_update()
     # then
     assert sensor.state == 2.0
+@pytest.mark.asyncio
 async def test_non_zero_latest_price(hass: HomeAssistant):
     """Pgnig sensor test - test_multiple_invocies."""
     pgnig_api = MagicMock()
@@ -121,6 +127,7 @@ async def test_non_zero_latest_price(hass: HomeAssistant):
     assert sensor.state == 2.0
 
 
+@pytest.mark.asyncio
 async def test_gross_amount_is_none(hass: HomeAssistant):
     """Pgnig sensor test - test_multiple_invocies."""
     pgnig_api = MagicMock()
@@ -138,6 +145,7 @@ async def test_gross_amount_is_none(hass: HomeAssistant):
     # then
     assert sensor.state == None
 
+@pytest.mark.asyncio
 async def test_wear_is_none(hass: HomeAssistant):
     """Pgnig sensor test - test_multiple_invocies."""
     pgnig_api = MagicMock()
