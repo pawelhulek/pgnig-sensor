@@ -2,7 +2,7 @@
 
 This sensor is gathering gas usage data for PGNIG clients.
 
-It uses API from https://ebok.pgnig.pl/
+It uses API from https://ebok.myorlen.pl/
 
 ## Manual Configuration
 Sample configuration
@@ -63,7 +63,7 @@ This is a personal project and isn't in any way affiliated with, sponsored or en
 
 All product names, trademarks and registered trademarks in (the images in) this repository, are property of their respective owners. All images in this repository are used by the project for identification purposes only.
 
-The data source for this integration is https://ebok.pgnig.pl/
+The data source for this integration is https://ebok.myorlen.pl/
 
 The author of this project categorically rejects any and all responsibility for the data that were presented by the integration.
 
