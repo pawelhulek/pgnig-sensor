@@ -173,29 +173,26 @@ class PgnigInvoiceSensor(SensorEntity):
 
     def invoices_summary(self):
         id_local = self.id_local
+        invoices = self.api.invoices().invoices_list
 
         def upcoming_payment_for_meter(x: InvoicesList):
-            return id_local == x.id_pp and not x.is_paid
+            return str(id_local) == str(x.id_pp) and not x.is_paid and not x.is_credit_note
 
         def to_amount_to_pay(x: InvoicesList):
             return x.amount_to_pay
 
-        next_payment_item = min(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list),
-                                key=lambda z: z.date,
-                                default=InvoicesList(None, None, None, None, None, None, None, None,
-                                                     None, None, None, None, None, None, None, None,
-                                                     None, None, None, None, None, None,
-                                                     None, None, None,
-                                                     None, None, None, None,
-                                                     None))
+        unpaid_invoices = list(filter(upcoming_payment_for_meter, invoices))
+        sum_of_unpaid_invoices = sum(map(to_amount_to_pay, unpaid_invoices))
 
-        sum_of_unpaid_invoices = sum(
-            map(to_amount_to_pay, filter(upcoming_payment_for_meter, self.api.invoices().invoices_list)))
+        next_payment_item = min(unpaid_invoices, key=lambda z: z.date) if unpaid_invoices else None
 
-        return {"sumOfUnpaidInvoices": sum_of_unpaid_invoices,
-                "nextPaymentDate": next_payment_item.paying_deadline_date,
-                "nextPaymentWear": next_payment_item.wear, "nextPaymentWearKWH": next_payment_item.wear_kwh,
-                "nextPaymentAmountToPay": next_payment_item.amount_to_pay}
+        return {
+            "sumOfUnpaidInvoices": sum_of_unpaid_invoices,
+            "nextPaymentDate": next_payment_item.paying_deadline_date if next_payment_item else None,
+            "nextPaymentWear": next_payment_item.wear_m3 or next_payment_item.wear if next_payment_item else None,
+            "nextPaymentWearKWH": next_payment_item.wear_kwh if next_payment_item else None,
+            "nextPaymentAmountToPay": next_payment_item.amount_to_pay if next_payment_item else None,
+        }
 
 
 class PgnigCostTrackingSensor(SensorEntity):
@@ -232,9 +229,10 @@ class PgnigCostTrackingSensor(SensorEntity):
     def state(self):
         if self._state is None:
             return None
-        if self._state.gross_amount is None or self._state.wear is None:
+        gas_m3 = self._state.wear_m3 or self._state.wear
+        if self._state.gross_amount is None or gas_m3 is None or gas_m3 == 0:
             return None
-        return self._state.gross_amount / self._state.wear
+        return self._state.gross_amount / gas_m3
 
     @property
     def extra_state_attributes(self):
@@ -242,8 +240,9 @@ class PgnigCostTrackingSensor(SensorEntity):
         if self._state is not None:
             attrs["last_invoice_date"] = self._state.paying_deadline_date
             attrs["last_invoice_gross_amount"] = self._state.gross_amount
-            attrs["last_invoice_wear"] = self._state.wear
+            attrs["last_invoice_wear_m3"] = self._state.wear_m3
             attrs["last_invoice_wear_KWH"] = self._state.wear_kwh
+            attrs["last_invoice_number"] = self._state.number
         return attrs
 
     async def async_update(self):
@@ -251,19 +250,18 @@ class PgnigCostTrackingSensor(SensorEntity):
 
     def latest_price(self):
         id_local = self.id_local
+        invoices = self.api.invoices().invoices_list
 
-        def upcoming_payment_for_meter(x: InvoicesList):
-            return id_local == x.id_pp \
-                and x.wear is not None \
-                and x.wear != 0 \
-                and x.gross_amount is not None \
+        def has_valid_consumption(x: InvoicesList) -> bool:
+            gas_m3 = x.wear_m3 or x.wear
+            return (
+                str(id_local) == str(x.id_pp)
+                and gas_m3 is not None
+                and gas_m3 != 0
+                and x.gross_amount is not None
                 and x.gross_amount != 0
+                and not x.is_credit_note
+            )
 
-        return max(filter(upcoming_payment_for_meter, self.api.invoices().invoices_list),
-                   key=lambda z: z.date,
-                   default=InvoicesList(None, None, None, None, None, None, None, None,
-                                        None, None, None, None, None, None, None,
-                                        None, None, None, None, None, None,
-                                        None, None, None, None,
-                                        None, None, None, None,
-                                        None))
+        valid_invoices = list(filter(has_valid_consumption, invoices))
+        return max(valid_invoices, key=lambda z: z.date) if valid_invoices else None

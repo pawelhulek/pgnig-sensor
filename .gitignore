@@ -1,2 +1,17 @@
 /.idea/*
 /venv/*
+/.venv/*
+
+# Home Assistant runtime files
+/ha_config/.storage/
+/ha_config/.homeassistant/
+/ha_config/home-assistant.log
+/ha_config/*.db
+/ha_config/*.log
+/ha_config/deps/
+/ha_config/tts/
+/ha_config/home-assistant_v2.db*
+
+# Keep configuration.yaml but ignore other generated files
+/ha_config/*.yaml.bak
+/ha_config/secrets.yaml
