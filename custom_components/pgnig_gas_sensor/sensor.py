@@ -118,8 +118,10 @@ class PgnigSensor(SensorEntity):
         self._state = latest_meter_reading
 
     def latestMeterReading(self):
-        return max(self.api.readingForMeter(self.meter_id).meter_readings,
-                   key=lambda z: z.reading_date_utc)
+        readings = self.api.readingForMeter(self.meter_id).meter_readings
+        if not readings:
+            return None
+        return max(readings, key=lambda z: z.reading_date_utc)
 
 
 class PgnigInvoiceSensor(SensorEntity):
