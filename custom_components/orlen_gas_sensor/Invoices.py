@@ -1,0 +1,209 @@
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, List, TypeVar, Callable, Type, cast
+import dateutil.parser
+
+T = TypeVar("T")
+
+
+def from_str(x: Any) -> str:
+    return str(x) if x is not None else ""
+
+
+def from_float_or_int(x: Any) -> float:
+    if x is None:
+        return 0.0
+    return float(x)
+
+
+def from_datetime(x: Any) -> datetime:
+    return dateutil.parser.parse(x)
+
+
+def from_float(x: Any) -> float:
+    return float(x)
+
+
+def from_int(x: Any) -> int:
+    return x
+
+
+def from_bool(x: Any) -> bool:
+    return x
+
+
+def from_none(x: Any) -> Any:
+    return x
+
+
+def to_float(x: Any) -> float:
+    return x
+
+
+def from_list(f: Callable[[Any], T], x: Any) -> List[T]:
+    return [f(y) for y in x]
+
+
+def to_class(c: Type[T], x: Any) -> dict:
+    return cast(Any, x).to_dict()
+
+
+@dataclass
+class InvoicesList:
+    number: str
+    date: datetime
+    sell_date: datetime
+    gross_amount: float
+    amount_to_pay: float
+    wear: float
+    wear_kwh: float
+    wear_m3: float
+    paying_deadline_date: datetime
+    start_date: datetime
+    end_date: datetime
+    is_paid: bool
+    id_pp: str
+    type: str
+    temp_type: str
+    days_remaining_to_deadline: int
+    has_iban: bool
+    iban: str
+    status: str
+    pdf_exists: bool
+    is_interest_note: bool
+    is_credit_note: bool
+    color: str
+    agreement_name: str
+    agreement_number: str
+    is_additional_agreement: bool
+    agreement_end_date: None
+    agreement_expired: bool
+    pdf_print_allowed: bool
+    payment_process_allowed: bool
+    agreement_has_card: bool
+    automatic_payment_date: datetime | None
+    is_insurance_policy: bool
+    is_lawyer_agreement: bool
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'InvoicesList':
+        assert isinstance(obj, dict)
+        number = from_str(obj.get("Number"))
+        date = from_datetime(obj.get("Date"))
+        sell_date = from_datetime(obj.get("SellDate"))
+        gross_amount = from_float(obj.get("GrossAmount"))
+        amount_to_pay = from_float_or_int(obj.get("AmountToPay"))
+        wear = from_float_or_int(obj.get("Wear"))
+        wear_kwh = from_float_or_int(obj.get("WearKWH"))
+        wear_m3 = from_float_or_int(obj.get("WearM3"))
+        paying_deadline_date = from_datetime(obj.get("PayingDeadlineDate"))
+        start_date = from_datetime(obj.get("StartDate"))
+        end_date = from_datetime(obj.get("EndDate"))
+        is_paid = from_bool(obj.get("IsPaid"))
+        id_pp = from_str(obj.get("IdPP"))
+        type_val = from_str(obj.get("Type"))
+        temp_type = from_str(obj.get("TempType"))
+        days_remaining_to_deadline = int(obj.get("DaysRemainingToDeadline", 0) or 0)
+        has_iban = from_bool(obj.get("HasIban"))
+        iban = from_str(obj.get("Iban")) if obj.get("Iban") is not None else ""
+        status = from_str(obj.get("Status"))
+        pdf_exists = from_bool(obj.get("PdfExists"))
+        is_interest_note = from_bool(obj.get("IsInterestNote"))
+        is_credit_note = from_bool(obj.get("IsCreditNote")) if obj.get("IsCreditNote") is not None else False
+        color = from_str(obj.get("Color"))
+        agreement_name = from_str(obj.get("AgreementName"))
+        agreement_number = from_str(obj.get("AgreementNumber"))
+        is_additional_agreement = from_bool(obj.get("IsAdditionalAgreement"))
+        agreement_end_date = from_none(obj.get("AgreementEndDate"))
+        agreement_expired = from_bool(obj.get("AgreementExpired"))
+        pdf_print_allowed = from_bool(obj.get("PDFPrintAllowed"))
+        payment_process_allowed = from_bool(obj.get("PaymentProcessAllowed"))
+        agreement_has_card = from_bool(obj.get("AgreementHasCard"))
+        apd = obj.get("AutomaticPaymentDate")
+        automatic_payment_date = from_datetime(apd) if apd else None
+        is_insurance_policy = from_bool(obj.get("IsInsurancePolicy"))
+        is_lawyer_agreement = from_bool(obj.get("IsLawyerAgreement"))
+        return InvoicesList(number, date, sell_date, gross_amount, amount_to_pay, wear, wear_kwh, wear_m3,
+                            paying_deadline_date, start_date, end_date, is_paid, id_pp, type_val, temp_type,
+                            days_remaining_to_deadline, has_iban, iban, status, pdf_exists, is_interest_note,
+                            is_credit_note, color, agreement_name, agreement_number, is_additional_agreement,
+                            agreement_end_date, agreement_expired, pdf_print_allowed, payment_process_allowed,
+                            agreement_has_card, automatic_payment_date, is_insurance_policy, is_lawyer_agreement)
+
+    def to_dict(self) -> dict:
+        result: dict = {"Number": from_str(self.number), "Date": self.date.isoformat(),
+                        "SellDate": self.sell_date.isoformat(), "GrossAmount": to_float(self.gross_amount),
+                        "AmountToPay": to_float(self.amount_to_pay), "Wear": to_float(self.wear),
+                        "WearKWH": to_float(self.wear_kwh), "WearM3": to_float(self.wear_m3),
+                        "PayingDeadlineDate": self.paying_deadline_date.isoformat(),
+                        "StartDate": self.start_date.isoformat(), "EndDate": self.end_date.isoformat(),
+                        "IsPaid": from_bool(self.is_paid), "IdPP": from_str(str(self.id_pp)),
+                        "Type": from_str(self.type), "TempType": from_str(self.temp_type),
+                        "DaysRemainingToDeadline": from_int(self.days_remaining_to_deadline),
+                        "HasIban": from_bool(self.has_iban), "Iban": from_str(self.iban),
+                        "Status": from_str(self.status),
+                        "PdfExists": from_bool(self.pdf_exists), "IsInterestNote": from_bool(self.is_interest_note),
+                        "IsCreditNote": from_bool(self.is_credit_note),
+                        "Color": from_str(self.color), "AgreementName": from_str(self.agreement_name),
+                        "AgreementNumber": from_str(self.agreement_number),
+                        "IsAdditionalAgreement": from_bool(self.is_additional_agreement),
+                        "AgreementEndDate": from_none(self.agreement_end_date),
+                        "AgreementExpired": from_bool(self.agreement_expired),
+                        "PDFPrintAllowed": from_bool(self.pdf_print_allowed),
+                        "PaymentProcessAllowed": from_bool(self.payment_process_allowed),
+                        "AgreementHasCard": from_bool(self.agreement_has_card),
+                        "AutomaticPaymentDate": self.automatic_payment_date.isoformat() if self.automatic_payment_date else None,
+                        "IsInsurancePolicy": from_bool(self.is_insurance_policy),
+                        "IsLawyerAgreement": from_bool(self.is_lawyer_agreement)}
+        return result
+
+
+@dataclass
+class Invoices:
+    has_non_paid_forecast: bool
+    allow_load_after30_days: bool
+    allow_load_after30_days_filter: bool
+    invoices_list: List[InvoicesList]
+    code: int
+    message: None
+    display_to_end_user: bool
+    end_user_message: None
+    token_expire_date: datetime
+    token_expire_date_utc: datetime
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'Invoices':
+        assert isinstance(obj, dict)
+        has_non_paid_forecast = from_bool(obj.get("HasNonPaidForecast"))
+        allow_load_after30_days = from_bool(obj.get("AllowLoadAfter30Days"))
+        allow_load_after30_days_filter = from_bool(obj.get("AllowLoadAfter30DaysFilter", False))
+        invoices_list = from_list(InvoicesList.from_dict, obj.get("InvoicesList") or [])
+        code = from_int(obj.get("Code"))
+        message = from_none(obj.get("Message"))
+        display_to_end_user = from_bool(obj.get("DisplayToEndUser"))
+        end_user_message = from_none(obj.get("EndUserMessage"))
+        token_expire_date = from_datetime(obj.get("TokenExpireDate"))
+        token_expire_date_utc = from_datetime(obj.get("TokenExpireDateUtc"))
+        return Invoices(has_non_paid_forecast, allow_load_after30_days, allow_load_after30_days_filter,
+                        invoices_list, code, message, display_to_end_user, end_user_message,
+                        token_expire_date, token_expire_date_utc)
+
+    def to_dict(self) -> dict:
+        result: dict = {"HasNonPaidForecast": from_bool(self.has_non_paid_forecast),
+                        "AllowLoadAfter30Days": from_bool(self.allow_load_after30_days),
+                        "AllowLoadAfter30DaysFilter": from_bool(self.allow_load_after30_days_filter),
+                        "InvoicesList": from_list(lambda x: to_class(InvoicesList, x), self.invoices_list),
+                        "Code": from_int(self.code), "Message": from_none(self.message),
+                        "DisplayToEndUser": from_bool(self.display_to_end_user),
+                        "EndUserMessage": from_none(self.end_user_message),
+                        "TokenExpireDate": self.token_expire_date.isoformat(),
+                        "TokenExpireDateUtc": self.token_expire_date_utc.isoformat()}
+        return result
+
+
+def invoices_from_dict(s: Any) -> Invoices:
+    return Invoices.from_dict(s)
+
+
+def invoices_to_dict(x: Invoices) -> Any:
+    return to_class(Invoices, x)

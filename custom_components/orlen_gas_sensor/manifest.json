@@ -1,0 +1,15 @@
+{
+  "domain": "orlen_gas_sensor",
+  "name": "Orlen gas Sensor",
+  "documentation": "https://github.com/pawelhulek/pgnig-sensor",
+  "issue_tracker": "https://github.com/pawelhulek/pgnig-sensor/issues",
+  "dependencies": [],
+  "config_flow": true,
+  "codeowners": [
+    "@pawelhulek"
+  ],
+  "requirements": [],
+  "iot_class": "cloud_polling",
+  "quality_scale": "gold",
+  "version": "3.0.0"
+}

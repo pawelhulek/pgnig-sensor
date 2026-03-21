@@ -1,0 +1,25 @@
+{
+  "title": "Orlen gas sensor",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Wpisz swoje dane autoryzacyjne do Orlen EBOK",
+        "description": "Ta integracja dodaje sensory uzycia gazu na podstawie odczytów z EBOKu Orlen.\n\n\n\n {error_info}",
+        "data": {
+          "username": "Login",
+          "password": "Hasło"
+        }
+      }
+    },
+    "error": {
+      "verify_connection_failed": "Logowanie nie powiodło się!"
+    }
+  },
+  "entity": {
+    "button": {
+      "refresh_data": {
+        "name": "Odśwież dane"
+      }
+    }
+  }
+}
