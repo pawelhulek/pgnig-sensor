@@ -83,7 +83,7 @@ class PgnigSensor(SensorEntity):
 
     @property
     def unique_id(self) -> str | None:
-        return "pgnig_sensor_" + self.meter_id + "_" + str(self.id_local)
+        return "pgnig_sensor" + self.meter_id + "_" + str(self.id_local)
 
     @property
     def device_info(self):
@@ -137,7 +137,7 @@ class PgnigInvoiceSensor(SensorEntity):
 
     @property
     def unique_id(self) -> str | None:
-        return "pgnig_invoice_sensor_" + self.meter_id + "_" + str(self.id_local)
+        return "pgnig_invoice_sensor" + self.meter_id + "_" + str(self.id_local)
 
     @property
     def device_info(self):
@@ -209,7 +209,7 @@ class PgnigCostTrackingSensor(SensorEntity):
 
     @property
     def unique_id(self) -> str | None:
-        return "pgnig_cost_tracking_sensor_" + self.meter_id + "_" + str(self.id_local)
+        return "pgnig_cost_tracking_sensor" + self.meter_id + "_" + str(self.id_local)
 
     @property
     def device_info(self):
