@@ -1,10 +1,10 @@
 {
-  "title": "PGNIG gas sensor",
+  "title": "Orlen gas sensor",
   "config": {
     "step": {
       "user": {
-        "title": "Enter the credentials to your PGNIG EBOK",
-        "description": "This integration will add sensors to get gas usage data from PGNIG Sensor. \n\n\n\n {error_info}",
+        "title": "Enter the credentials to your Orlen EBOK",
+        "description": "This integration will add sensors to get gas usage data from Orlen Sensor. \n\n\n\n {error_info}",
         "data": {
           "username": "Username",
           "password": "Password"

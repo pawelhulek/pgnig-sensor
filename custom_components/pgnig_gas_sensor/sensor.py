@@ -79,18 +79,18 @@ class PgnigSensor(SensorEntity):
         self.api = api
         self.meter_id = meter_id
         self.id_local = id_local
-        self.entity_name = "PGNIG Gas Sensor " + meter_id + " " + str(id_local)
+        self.entity_name = "Orlen Gas Sensor " + meter_id + " " + str(id_local)
 
     @property
     def unique_id(self) -> str | None:
-        return "pgnig_sensor" + self.meter_id + "_" + str(self.id_local)
+        return "pgnig_sensor_" + self.meter_id + "_" + str(self.id_local)
 
     @property
     def device_info(self):
         return {
             "identifiers": {("pgnig_gas_sensor", self.meter_id)},
-            "name": f"PGNIG GAS METER ID {self.meter_id}",
-            "manufacturer": "PGNIG",
+            "name": f"Orlen GAS METER ID {self.meter_id}",
+            "manufacturer": "Orlen",
             "model": self.meter_id,
             "via_device": None,
         }
@@ -128,24 +128,23 @@ class PgnigInvoiceSensor(SensorEntity):
     def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
         self._attr_native_unit_of_measurement = "PLN"
         self._attr_device_class = SensorDeviceClass.MONETARY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._state: MeterReading | None = None
         self.hass = hass
         self.api = api
         self.meter_id = meter_id
         self.id_local = id_local
-        self.entity_name = "PGNIG Gas Invoice Sensor " + meter_id + " " + str(id_local)
+        self.entity_name = "Orlen Gas Invoice Sensor " + meter_id + " " + str(id_local)
 
     @property
     def unique_id(self) -> str | None:
-        return "pgnig_invoice_sensor" + self.meter_id + "_" + str(self.id_local)
+        return "pgnig_invoice_sensor_" + self.meter_id + "_" + str(self.id_local)
 
     @property
     def device_info(self):
         return {
             "identifiers": {("pgnig_gas_sensor", self.meter_id)},
-            "name": f"PGNIG GAS METER ID {self.meter_id}",
-            "manufacturer": "PGNIG",
+            "name": f"Orlen GAS METER ID {self.meter_id}",
+            "manufacturer": "Orlen",
             "model": self.meter_id,
             "via_device": None,
         }
@@ -201,24 +200,23 @@ class PgnigCostTrackingSensor(SensorEntity):
     def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
         self._attr_native_unit_of_measurement = "PLN/m³"
         self._attr_device_class = SensorDeviceClass.MONETARY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._state: InvoicesList | None = None
         self.hass = hass
         self.api = api
         self.meter_id = meter_id
         self.id_local = id_local
-        self.entity_name = "PGNIG Gas Cost Tracking Sensor " + meter_id + " " + str(id_local)
+        self.entity_name = "Orlen Gas Cost Tracking Sensor " + meter_id + " " + str(id_local)
 
     @property
     def unique_id(self) -> str | None:
-        return "pgnig_cost_tracking_sensor" + self.meter_id + "_" + str(self.id_local)
+        return "pgnig_cost_tracking_sensor_" + self.meter_id + "_" + str(self.id_local)
 
     @property
     def device_info(self):
         return {
             "identifiers": {("pgnig_gas_sensor", self.meter_id)},
-            "name": f"PGNIG GAS METER ID {self.meter_id}",
-            "manufacturer": "PGNIG",
+            "name": f"Orlen GAS METER ID {self.meter_id}",
+            "manufacturer": "Orlen",
             "model": self.meter_id,
             "via_device": None,
         }

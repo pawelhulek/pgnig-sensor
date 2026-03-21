@@ -1,10 +1,10 @@
 {
-  "title": "PGNIG gas sensor",
+  "title": "Orlen gas sensor",
   "config": {
     "step": {
       "user": {
-        "title": "Wpisz swoje dane autoryzacyjne do PGNIG EBOK",
-        "description": "Ta integracja dodaje sensory uzycia gazu na podstawie odczytów z EBOKu PGNIG.\n\n\n\n {error_info}",
+        "title": "Wpisz swoje dane autoryzacyjne do Orlen EBOK",
+        "description": "Ta integracja dodaje sensory uzycia gazu na podstawie odczytów z EBOKu Orlen.\n\n\n\n {error_info}",
         "data": {
           "username": "Login",
           "password": "Hasło"
