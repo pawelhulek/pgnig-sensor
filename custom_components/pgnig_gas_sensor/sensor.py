@@ -48,7 +48,8 @@ async def async_setup_entry(
         async_add_entities(
             [PgnigSensor(hass, api, meter_id, x.id_local),
              PgnigInvoiceSensor(hass, api, meter_id, x.id_local),
-             PgnigCostTrackingSensor(hass, api, meter_id, x.id_local)],
+             PgnigCostTrackingSensor(hass, api, meter_id, x.id_local),
+             PgnigCostTrackingKwhSensor(hass, api, meter_id, x.id_local)],
             update_before_add=True)
 
 
@@ -69,7 +70,8 @@ async def async_setup_platform(
         async_add_entities(
             [PgnigSensor(hass, api, x.meter_number, x.id_local),
              PgnigInvoiceSensor(hass, api, x.meter_number, x.id_local),
-             PgnigCostTrackingSensor(hass, api, x.meter_number, x.id_local)],
+             PgnigCostTrackingSensor(hass, api, x.meter_number, x.id_local),
+             PgnigCostTrackingKwhSensor(hass, api, x.meter_number, x.id_local)],
             update_before_add=True)
 
 
@@ -268,4 +270,73 @@ class PgnigCostTrackingSensor(SensorEntity):
             )
 
         valid_invoices = list(filter(has_valid_consumption, invoices))
+        return max(valid_invoices, key=lambda z: z.date) if valid_invoices else None
+
+
+class PgnigCostTrackingKwhSensor(SensorEntity):
+    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
+        self._attr_native_unit_of_measurement = "PLN/kWh"
+        self._attr_device_class = SensorDeviceClass.MONETARY
+        self._state: InvoicesList | None = None
+        self.hass = hass
+        self.api = api
+        self.meter_id = meter_id
+        self.id_local = id_local
+        self.entity_name = "Orlen Gas Cost Tracking kWh Sensor " + meter_id + " " + str(id_local)
+
+    @property
+    def unique_id(self) -> str | None:
+        return "pgnig_cost_tracking_kwh_sensor" + self.meter_id + "_" + str(self.id_local)
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {("pgnig_gas_sensor", self.meter_id)},
+            "name": f"Orlen GAS METER ID {self.meter_id}",
+            "manufacturer": "Orlen",
+            "model": self.meter_id,
+            "via_device": None,
+        }
+
+    @property
+    def name(self) -> str:
+        return self.entity_name
+
+    @property
+    def state(self):
+        if self._state is None:
+            return None
+        if self._state.gross_amount is None or self._state.wear_kwh == 0:
+            return None
+        return self._state.gross_amount / self._state.wear_kwh
+
+    @property
+    def extra_state_attributes(self):
+        attrs = dict()
+        if self._state is not None:
+            attrs["last_invoice_date"] = self._state.paying_deadline_date
+            attrs["last_invoice_gross_amount"] = self._state.gross_amount
+            attrs["last_invoice_wear_m3"] = self._state.wear_m3
+            attrs["last_invoice_wear_KWH"] = self._state.wear_kwh
+            attrs["last_invoice_number"] = self._state.number
+        return attrs
+
+    async def async_update(self):
+        self._state = await self.hass.async_add_executor_job(self.latest_price)
+
+    def latest_price(self):
+        id_local = self.id_local
+        invoices = self.api.invoices().invoices_list
+
+        def has_valid_kwh_consumption(x: InvoicesList) -> bool:
+            return (
+                str(id_local) == str(x.id_pp)
+                and x.wear_kwh is not None
+                and x.wear_kwh != 0
+                and x.gross_amount is not None
+                and x.gross_amount != 0
+                and not x.is_credit_note
+            )
+
+        valid_invoices = list(filter(has_valid_kwh_consumption, invoices))
         return max(valid_invoices, key=lambda z: z.date) if valid_invoices else None

@@ -10,7 +10,7 @@ from custom_components.pgnig_gas_sensor.PpgReadingForMeter import (
     MeterReading,
     PpgReadingForMeter,
 )
-from custom_components.pgnig_gas_sensor.sensor import PgnigSensor, PgnigInvoiceSensor, PgnigCostTrackingSensor
+from custom_components.pgnig_gas_sensor.sensor import PgnigSensor, PgnigInvoiceSensor, PgnigCostTrackingSensor, PgnigCostTrackingKwhSensor
 from custom_components.pgnig_gas_sensor.Invoices import Invoices, InvoicesList
 
 
@@ -169,6 +169,96 @@ async def test_wear_is_none(hass: HomeAssistant):
     sensor = PgnigCostTrackingSensor(hass, pgnig_api, '12', 1)
     await sensor.async_update()
     # then
+    assert sensor.state is None
+
+
+@pytest.mark.asyncio
+async def test_a_kwh_price(hass: HomeAssistant):
+    """PgnigCostTrackingKwhSensor - basic price calculation."""
+    pgnig_api = MagicMock()
+    invoice = any_invoice()
+    invoice.gross_amount = 10
+    invoice.wear_kwh = 2
+    pgnig_api.invoices = MagicMock(return_value=(Invoices(invoices_list=[invoice],
+                                                          code=0, message=None,
+                                                          display_to_end_user=None,
+                                                          token_expire_date=None, allow_load_after30_days=None,
+                                                          allow_load_after30_days_filter=False,
+                                                          has_non_paid_forecast=None,
+                                                          token_expire_date_utc=None, end_user_message=None)))
+    sensor = PgnigCostTrackingKwhSensor(hass, pgnig_api, '12', 1)
+    await sensor.async_update()
+    assert sensor.state == 5.0
+
+
+@pytest.mark.asyncio
+async def test_latest_kwh_price(hass: HomeAssistant):
+    """PgnigCostTrackingKwhSensor - newest invoice wins."""
+    pgnig_api = MagicMock()
+    old_invoice = any_invoice()
+    old_invoice.date = datetime(2022, 7, 15)
+    old_invoice.gross_amount = 1
+    old_invoice.wear_kwh = 1
+
+    new_invoice = any_invoice()
+    new_invoice.date = datetime(2022, 8, 15)
+    new_invoice.gross_amount = 4
+    new_invoice.wear_kwh = 2
+
+    pgnig_api.invoices = MagicMock(return_value=(Invoices(invoices_list=[old_invoice, new_invoice],
+                                                          code=0, message=None,
+                                                          display_to_end_user=None,
+                                                          token_expire_date=None, allow_load_after30_days=None,
+                                                          allow_load_after30_days_filter=False,
+                                                          has_non_paid_forecast=None,
+                                                          token_expire_date_utc=None, end_user_message=None)))
+    sensor = PgnigCostTrackingKwhSensor(hass, pgnig_api, '12', 1)
+    await sensor.async_update()
+    assert sensor.state == 2.0
+
+
+@pytest.mark.asyncio
+async def test_non_zero_kwh_price(hass: HomeAssistant):
+    """PgnigCostTrackingKwhSensor - invoice with wear_kwh=0 is skipped."""
+    pgnig_api = MagicMock()
+    zero_invoice = any_invoice()
+    zero_invoice.date = datetime(2022, 9, 15)
+    zero_invoice.gross_amount = 1
+    zero_invoice.wear_kwh = 0
+
+    valid_invoice = any_invoice()
+    valid_invoice.date = datetime(2022, 8, 15)
+    valid_invoice.gross_amount = 6
+    valid_invoice.wear_kwh = 2
+
+    pgnig_api.invoices = MagicMock(return_value=(Invoices(invoices_list=[zero_invoice, valid_invoice],
+                                                          code=0, message=None,
+                                                          display_to_end_user=None,
+                                                          token_expire_date=None, allow_load_after30_days=None,
+                                                          allow_load_after30_days_filter=False,
+                                                          has_non_paid_forecast=None,
+                                                          token_expire_date_utc=None, end_user_message=None)))
+    sensor = PgnigCostTrackingKwhSensor(hass, pgnig_api, '12', 1)
+    await sensor.async_update()
+    assert sensor.state == 3.0
+
+
+@pytest.mark.asyncio
+async def test_kwh_gross_amount_is_none(hass: HomeAssistant):
+    """PgnigCostTrackingKwhSensor - returns None when gross_amount is None."""
+    pgnig_api = MagicMock()
+    invoice = any_invoice()
+    invoice.gross_amount = None
+    invoice.wear_kwh = 2
+    pgnig_api.invoices = MagicMock(return_value=(Invoices(invoices_list=[invoice],
+                                                          code=0, message=None,
+                                                          display_to_end_user=None,
+                                                          token_expire_date=None, allow_load_after30_days=None,
+                                                          allow_load_after30_days_filter=False,
+                                                          has_non_paid_forecast=None,
+                                                          token_expire_date_utc=None, end_user_message=None)))
+    sensor = PgnigCostTrackingKwhSensor(hass, pgnig_api, '12', 1)
+    await sensor.async_update()
     assert sensor.state is None
 
 
