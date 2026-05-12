@@ -9,7 +9,7 @@ from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_AUTH_METHOD, DEFAULT_AUTH_METHOD
 from .PgnigApi import PgnigApi
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,8 +23,9 @@ async def async_setup_entry(
     """Set up the PGNIG button."""
     username = config_entry.data.get(CONF_USERNAME)
     password = config_entry.data.get(CONF_PASSWORD)
+    auth_method = config_entry.data.get(CONF_AUTH_METHOD, DEFAULT_AUTH_METHOD)
 
-    api = PgnigApi(username, password)
+    api = PgnigApi(username, password, auth_method)
     meter_list = await hass.async_add_executor_job(api.meterList)
 
     buttons = []

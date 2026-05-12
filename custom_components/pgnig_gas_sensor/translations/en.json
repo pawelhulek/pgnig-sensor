@@ -3,9 +3,33 @@
   "config": {
     "step": {
       "user": {
+        "title": "Select login method",
+        "description": "Choose how to log in to your Orlen EBOK account.",
+        "data": {
+          "auth_method": "Login method"
+        }
+      },
+      "credentials": {
         "title": "Enter the credentials to your Orlen EBOK",
         "description": "This integration will add sensors to get gas usage data from Orlen Sensor. \n\n\n\n {error_info}",
         "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reauth": {
+        "title": "Update credentials for Orlen EBOK",
+        "description": "Your login credentials are invalid. Please update them. \n\n\n\n {error_info}",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Orlen gas sensor",
+        "description": "Update login method or credentials. \n\n\n\n {error_info}",
+        "data": {
+          "auth_method": "Login method",
           "username": "Username",
           "password": "Password"
         }
@@ -13,6 +37,12 @@
     },
     "error": {
       "verify_connection_failed": "Login failed!"
+    },
+    "abort": {
+      "reauth_successful": "Credentials updated successfully",
+      "reconfigure_successful": "Configuration updated successfully",
+      "no_config_entry": "No configuration entry found",
+      "one_instance_at_a_time_please": "Only one instance is allowed"
     }
   }
 }

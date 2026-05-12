@@ -5,6 +5,8 @@ import requests
 from .Invoices import invoices_from_dict, Invoices
 from .PgpList import (PpgList, ppg_list_from_dict)
 from .PpgReadingForMeter import PpgReadingForMeter, ppg_reading_for_meter_from_dict
+from .auth import AuthRegistry
+from .const import DEFAULT_AUTH_METHOD
 
 login_url = "https://ebok.myorlen.pl/auth/login?api-version=3.0"
 devices_list_url = "https://ebok.myorlen.pl/crm/get-ppg-list?api-version=3.0"
@@ -18,9 +20,13 @@ headers = {
 
 class PgnigApi:
 
-    def __init__(self, username, password) -> None:
+    def __init__(self, username, password, auth_method=DEFAULT_AUTH_METHOD) -> None:
         self.username = username
         self.password = password
+        auth_class = AuthRegistry.get(auth_method)
+        if auth_class is None:
+            raise ValueError(f"Unknown auth method: {auth_method}")
+        self._auth = auth_class(username, password)
 
     def meterList(self) -> PpgList:
         return ppg_list_from_dict(requests.get(devices_list_url, headers={
@@ -44,10 +50,4 @@ class PgnigApi:
         }).json())
 
     def login(self) -> string:
-        payload = {"identificator": self.username,
-                   "accessPin": self.password,
-                   "rememberLogin": "false",
-                   "DeviceId": "123",  # TODO randomize it
-                   "DeviceName": "Home Assistant: 99.9.999.99<br>",
-                   "DeviceType": "Web"}
-        return requests.request('POST', login_url, headers=headers, json=payload).json().get('Token')
+        return self._auth.login()
