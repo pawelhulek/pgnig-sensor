@@ -1,9 +1,30 @@
 """OrlenID OID login strategy for Orlen EBOK."""
+import logging
 import re
 
 import requests
 
 from . import AuthMethod, AuthMethodInfo, AuthRegistry, device_id
+
+_LOGGER = logging.getLogger(__name__)
+
+BASE_URL = "https://ebok.myorlen.pl"
+
+browser_headers = {
+    'Accept-Language': 'pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Cache-Control': 'no-cache',
+    'Content-Type': 'application/json',
+    'Origin': BASE_URL,
+    'Pragma': 'no-cache',
+    'Referer': f'{BASE_URL}/',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+    'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"macOS"',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+}
 
 
 @AuthRegistry.register
@@ -11,6 +32,10 @@ class OrlenIDAuth(AuthMethod):
     def __init__(self, username, password) -> None:
         self.username = username
         self.password = password
+        self._device_id = device_id(username)
+        self._session = requests.Session()
+        self._session.headers.update(browser_headers)
+        self._session.cookies.set("pgnig-ebok-device-token", self._device_id)
 
     @property
     def info(self) -> AuthMethodInfo:
@@ -20,26 +45,28 @@ class OrlenIDAuth(AuthMethod):
             description="OrlenID OID login"
         )
 
-    def login(self) -> str:
-        init_url = 'https://ebok.myorlen.pl/auth/oid/init-login?api-version=3.0'
+    def _init_session(self):
+        _LOGGER.debug("Initializing session with GET %s", BASE_URL)
+        resp = self._session.get(BASE_URL, timeout=30)
+        _LOGGER.debug("Session init status: %s, cookies: %s", resp.status_code, dict(self._session.cookies))
 
-        init_device_id = device_id(self.username)
-        session = requests.Session()
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'
-        }
+    def login(self) -> str:
+        self._init_session()
+
+        init_url = f'{BASE_URL}/auth/oid/init-login?api-version=3.0'
         init_data = {
-            "DeviceId": init_device_id,
+            "DeviceId": self._device_id,
             "DeviceType": "Web",
             "DeviceName": "HomeAssistant wersja: 0.1",
-            "LightweightRedirectUrl": "https://ebok.myorlen.pl/?show=modal",
-            "FinalizeRegistrationRedirectUrl": "https://ebok.myorlen.pl/aktywuj-oid/"
+            "LightweightRedirectUrl": f"{BASE_URL}/?show=modal",
+            "FinalizeRegistrationRedirectUrl": f"{BASE_URL}/aktywuj-oid/"
         }
 
-        response_init = session.post(init_url, json=init_data, headers={'Content-Type': 'application/json'})
+        response_init = self._session.post(init_url, json=init_data, timeout=30)
+        _LOGGER.debug("Init login status: %s", response_init.status_code)
         redirect_url = response_init.json().get('RedirectUrl')
-        response_page = session.get(redirect_url, headers=headers)
+
+        response_page = self._session.get(redirect_url, timeout=30)
         match = re.search(r'action="([^"]+)"', response_page.text)
 
         if match:
@@ -49,12 +76,14 @@ class OrlenIDAuth(AuthMethod):
                 'password': self.password,
                 'credentialId': ''
             }
-            final_response = session.post(post_url, data=payload, headers=headers)
+            final_response = self._session.post(post_url, data=payload, headers={
+                'Referer': redirect_url,
+                'Content-Type': 'application/x-www-form-urlencoded',
+            }, timeout=30)
 
-            if "https://ebok.myorlen.pl/home" in final_response.url:
-                auth_token_url = f'https://ebok.myorlen.pl/auth/get-auth-token?deviceId={init_data["DeviceId"]}&api-version=3.0'
-                headers.update({'Referer': 'https://ebok.myorlen.pl/'})
-                res_auth = session.get(auth_token_url, headers=headers)
+            if f"{BASE_URL}/home" in final_response.url:
+                auth_token_url = f'{BASE_URL}/auth/get-auth-token?deviceId={self._device_id}&api-version=3.0'
+                res_auth = self._session.get(auth_token_url, timeout=30)
                 if res_auth.status_code == 200:
                     return res_auth.json().get('Token')
         return ""

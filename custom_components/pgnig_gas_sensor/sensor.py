@@ -39,8 +39,9 @@ async def async_setup_entry(
     api = PgnigApi(user, password, auth_method)
     try:
         pgps = await hass.async_add_executor_job(api.meterList)
-    except Exception:
-        raise ValueError
+    except Exception as err:
+        _LOGGER.error("Failed to set up PGNiG sensor: %s", err)
+        raise
 
     for x in pgps.ppg_list:
         meter_id = x.meter_number
@@ -60,8 +61,9 @@ async def async_setup_platform(
     api = PgnigApi(config.get(CONF_USERNAME), config.get(CONF_PASSWORD), DEFAULT_AUTH_METHOD)
     try:
         pgps = await hass.async_add_executor_job(api.meterList)
-    except Exception:
-        raise ValueError
+    except Exception as err:
+        _LOGGER.error("Failed to set up PGNiG sensor: %s", err)
+        raise
 
     for x in pgps.ppg_list:
         async_add_entities(
