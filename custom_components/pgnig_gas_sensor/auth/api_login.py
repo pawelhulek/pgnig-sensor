@@ -37,6 +37,11 @@ class ApiLoginAuth(AuthMethod):
         self._session = requests.Session()
         self._session.headers.update(browser_headers)
         self._session.cookies.set("pgnig-ebok-device-token", self._device_id)
+        self._cached_token: str = ""
+
+    @property
+    def session(self) -> requests.Session:
+        return self._session
 
     @property
     def info(self) -> AuthMethodInfo:
@@ -52,6 +57,10 @@ class ApiLoginAuth(AuthMethod):
         _LOGGER.debug("Session init status: %s, cookies: %s", resp.status_code, dict(self._session.cookies))
 
     def login(self) -> str:
+        if self._cached_token:
+            _LOGGER.debug("Using cached auth token")
+            return self._cached_token
+
         self._init_session()
 
         payload = {"identificator": self.username,
@@ -75,4 +84,5 @@ class ApiLoginAuth(AuthMethod):
         token = data.get('Token')
         if not token:
             raise RuntimeError(f"Login response missing 'Token' field: {data}")
+        self._cached_token = token
         return token

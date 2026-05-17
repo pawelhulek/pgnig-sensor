@@ -1,6 +1,4 @@
-import string
-
-import requests
+import logging
 
 from .Invoices import invoices_from_dict, Invoices
 from .PgpList import (PpgList, ppg_list_from_dict)
@@ -8,14 +6,11 @@ from .PpgReadingForMeter import PpgReadingForMeter, ppg_reading_for_meter_from_d
 from .auth import AuthRegistry
 from .const import DEFAULT_AUTH_METHOD
 
-login_url = "https://ebok.myorlen.pl/auth/login?api-version=3.0"
+_LOGGER = logging.getLogger(__name__)
+
 devices_list_url = "https://ebok.myorlen.pl/crm/get-ppg-list?api-version=3.0"
 readings_url = "https://ebok.myorlen.pl/crm/get-all-ppg-readings-for-meter?pageSize=10&pageNumber=1&api-version=3.0&idPpg="
 invoices_url = "https://ebok.myorlen.pl/crm/get-invoices-v2?pageNumber=1&pageSize=12&api-version=3.0"
-headers = {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-}
 
 
 class PgnigApi:
@@ -28,26 +23,39 @@ class PgnigApi:
             raise ValueError(f"Unknown auth method: {auth_method}")
         self._auth = auth_class(username, password)
 
-    def meterList(self) -> PpgList:
-        return ppg_list_from_dict(requests.get(devices_list_url, headers={
+    def _api_headers(self, token):
+        return {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'AuthToken': self.login()
-        }).json())
+            'AuthToken': token,
+        }
+
+    def meterList(self) -> PpgList:
+        token = self.login()
+        if not token:
+            raise RuntimeError("Login failed - no token received")
+        resp = self._auth.session.get(devices_list_url, headers=self._api_headers(token))
+        if not resp.ok:
+            raise RuntimeError(f"Meter list failed with status {resp.status_code}: {resp.text[:200]}")
+        return ppg_list_from_dict(resp.json())
 
     def readingForMeter(self, meter_id) -> PpgReadingForMeter:
-        return ppg_reading_for_meter_from_dict(requests.get(readings_url + meter_id, headers={
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'AuthToken': (self.login())
-        }).json())
+        token = self.login()
+        if not token:
+            raise RuntimeError("Login failed - no token received")
+        resp = self._auth.session.get(readings_url + meter_id, headers=self._api_headers(token))
+        if not resp.ok:
+            raise RuntimeError(f"Reading failed with status {resp.status_code}: {resp.text[:200]}")
+        return ppg_reading_for_meter_from_dict(resp.json())
 
     def invoices(self) -> Invoices:
-        return invoices_from_dict(requests.get(invoices_url, headers={
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'AuthToken': (self.login())
-        }).json())
+        token = self.login()
+        if not token:
+            raise RuntimeError("Login failed - no token received")
+        resp = self._auth.session.get(invoices_url, headers=self._api_headers(token))
+        if not resp.ok:
+            raise RuntimeError(f"Invoices failed with status {resp.status_code}: {resp.text[:200]}")
+        return invoices_from_dict(resp.json())
 
-    def login(self) -> string:
+    def login(self) -> str:
         return self._auth.login()

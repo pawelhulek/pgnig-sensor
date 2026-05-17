@@ -1,10 +1,12 @@
 """Authentication method abstraction for Orlen EBOK."""
 from __future__ import annotations
 
-import hashlib
+import secrets
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
+
+import requests
 
 
 @dataclass
@@ -18,6 +20,11 @@ class AuthMethod(ABC):
     @property
     @abstractmethod
     def info(self) -> AuthMethodInfo:
+        pass
+
+    @property
+    @abstractmethod
+    def session(self) -> requests.Session:
         pass
 
     @abstractmethod
@@ -48,7 +55,7 @@ class AuthRegistry:
 
 
 def device_id(username: str) -> str:
-    return hashlib.md5(username.encode()).hexdigest()
+    return secrets.token_hex(16)
 
 
 from .api_login import ApiLoginAuth  # noqa: E402

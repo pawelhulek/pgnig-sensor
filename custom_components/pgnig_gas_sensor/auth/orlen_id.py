@@ -36,6 +36,11 @@ class OrlenIDAuth(AuthMethod):
         self._session = requests.Session()
         self._session.headers.update(browser_headers)
         self._session.cookies.set("pgnig-ebok-device-token", self._device_id)
+        self._cached_token: str = ""
+
+    @property
+    def session(self) -> requests.Session:
+        return self._session
 
     @property
     def info(self) -> AuthMethodInfo:
@@ -51,6 +56,10 @@ class OrlenIDAuth(AuthMethod):
         _LOGGER.debug("Session init status: %s, cookies: %s", resp.status_code, dict(self._session.cookies))
 
     def login(self) -> str:
+        if self._cached_token:
+            _LOGGER.debug("Using cached auth token")
+            return self._cached_token
+
         self._init_session()
 
         init_url = f'{BASE_URL}/auth/oid/init-login?api-version=3.0'
@@ -83,7 +92,11 @@ class OrlenIDAuth(AuthMethod):
 
             if f"{BASE_URL}/home" in final_response.url:
                 auth_token_url = f'{BASE_URL}/auth/get-auth-token?deviceId={self._device_id}&api-version=3.0'
-                res_auth = self._session.get(auth_token_url, timeout=30)
+                res_auth = self._session.get(auth_token_url, headers={
+                    'Accept': 'application/json, text/plain, */*',
+                    'Referer': f'{BASE_URL}/home',
+                }, timeout=30)
                 if res_auth.status_code == 200:
-                    return res_auth.json().get('Token')
+                    self._cached_token = res_auth.json().get('Token', "")
+                    return self._cached_token
         return ""
