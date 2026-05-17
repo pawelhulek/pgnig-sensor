@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, Dict, Any
 
 import homeassistant.helpers.config_validation as cv
@@ -9,6 +10,8 @@ from .auth import AuthRegistry
 from .const import DOMAIN, CONF_AUTH_METHOD, DEFAULT_AUTH_METHOD
 from .PgnigApi import PgnigApi
 
+_LOGGER = logging.getLogger(__name__)
+
 AUTH_SCHEMA = vol.Schema({
     vol.Required(CONF_USERNAME): cv.string,
     vol.Required(CONF_PASSWORD): cv.string,
@@ -16,6 +19,9 @@ AUTH_SCHEMA = vol.Schema({
 
 
 class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
+    def __init__(self) -> None:
+        self._auth_method: Optional[str] = None
+
     async def async_step_import(self, import_config):
         return self.async_abort(reason="one_instance_at_a_time_please")
 
@@ -23,13 +29,12 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
         methods = AuthRegistry.list()
 
         if len(methods) == 1:
-            return await self.async_step_credentials({
-                CONF_AUTH_METHOD: methods[0].id,
-                **(user_input or {}),
-            })
+            self._auth_method = methods[0].id
+            return await self.async_step_credentials()
 
         if user_input is not None and CONF_AUTH_METHOD in user_input:
-            return await self.async_step_credentials(user_input)
+            self._auth_method = user_input[CONF_AUTH_METHOD]
+            return await self.async_step_credentials()
 
         options = [(m.id, m.name) for m in methods]
         return self.async_show_form(
@@ -42,9 +47,9 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_credentials(self, user_input: Optional[Dict[str, Any]] = None):
         errors: Dict[str, str] = {}
         description_placeholders: Dict[str, str] = {"error_info": ""}
+        auth_method = self._auth_method or DEFAULT_AUTH_METHOD
 
         if user_input is not None:
-            auth_method = user_input.get(CONF_AUTH_METHOD, DEFAULT_AUTH_METHOD)
             username = user_input.get(CONF_USERNAME)
             password = user_input.get(CONF_PASSWORD)
 
@@ -57,24 +62,14 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_AUTH_METHOD: auth_method,
                 }
                 return self.async_create_entry(title="Pgnig sensor", data=data)
-            except Exception:
+            except Exception as err:
+                _LOGGER.exception("Orlen EBOK login failed: %s", err)
                 errors = {"base": "verify_connection_failed"}
-                description_placeholders = {"error_info": "EBOK Login Failed"}
-
-        step_data = {}
-        if user_input and CONF_AUTH_METHOD in user_input:
-            step_data[CONF_AUTH_METHOD] = user_input[CONF_AUTH_METHOD]
-
-        schema_dict: Dict[str, Any] = {
-            vol.Required(CONF_USERNAME): cv.string,
-            vol.Required(CONF_PASSWORD): cv.string,
-        }
-        if CONF_AUTH_METHOD in step_data:
-            schema_dict[CONF_AUTH_METHOD] = vol.Hidden()
+                description_placeholders = {"error_info": f"EBOK Login Failed: {err}"}
 
         return self.async_show_form(
             step_id="credentials",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=AUTH_SCHEMA,
             errors=errors,
             description_placeholders=description_placeholders,
         )
