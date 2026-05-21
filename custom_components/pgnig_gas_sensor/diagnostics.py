@@ -8,7 +8,7 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_AUTH_METHOD, DEFAULT_AUTH_METHOD
 from .PgnigApi import PgnigApi
 from .Invoices import InvoicesList
 from .PpgReadingForMeter import MeterReading
@@ -25,8 +25,9 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry."""
     username = config_entry.data.get("username")
     password = config_entry.data.get("password")
+    auth_method = config_entry.data.get(CONF_AUTH_METHOD, DEFAULT_AUTH_METHOD)
 
-    api = PgnigApi(username, password)
+    api = PgnigApi(username, password, auth_method)
 
     meters = await hass.async_add_executor_job(api.meterList)
     invoices = await hass.async_add_executor_job(api.invoices)

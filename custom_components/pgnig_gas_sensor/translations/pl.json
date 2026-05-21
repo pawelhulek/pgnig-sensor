@@ -3,9 +3,33 @@
   "config": {
     "step": {
       "user": {
+        "title": "Wybierz metodę logowania",
+        "description": "Wybierz jak logować się do swojego konta Orlen EBOK.",
+        "data": {
+          "auth_method": "Metoda logowania"
+        }
+      },
+      "credentials": {
         "title": "Wpisz swoje dane autoryzacyjne do Orlen EBOK",
         "description": "Ta integracja dodaje sensory uzycia gazu na podstawie odczytów z EBOKu Orlen.\n\n\n\n {error_info}",
         "data": {
+          "username": "Login",
+          "password": "Hasło"
+        }
+      },
+      "reauth": {
+        "title": "Zaktualizuj dane logowania do Orlen EBOK",
+        "description": "Twoje dane logowania są nieprawidłowe. Zaktualizuj je. \n\n\n\n {error_info}",
+        "data": {
+          "username": "Login",
+          "password": "Hasło"
+        }
+      },
+      "reconfigure": {
+        "title": "Zmień konfigurację sensora gazu Orlen",
+        "description": "Zaktualizuj metodę logowania lub dane autoryzacyjne. \n\n\n\n {error_info}",
+        "data": {
+          "auth_method": "Metoda logowania",
           "username": "Login",
           "password": "Hasło"
         }
@@ -13,6 +37,12 @@
     },
     "error": {
       "verify_connection_failed": "Logowanie nie powiodło się!"
+    },
+    "abort": {
+      "reauth_successful": "Dane logowania zaktualizowane pomyślnie",
+      "reconfigure_successful": "Konfiguracja zaktualizowana pomyślnie",
+      "no_config_entry": "Nie znaleziono wpisu konfiguracji",
+      "one_instance_at_a_time_please": "Dozwolona jest tylko jedna instancja"
     }
   }
 }
