@@ -132,6 +132,7 @@ class PgnigInvoiceSensor(SensorEntity):
     def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
         self._attr_native_unit_of_measurement = "PLN"
         self._attr_device_class = SensorDeviceClass.MONETARY
+        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._state: MeterReading | None = None
         self.hass = hass
         self.api = api
@@ -204,6 +205,7 @@ class PgnigCostTrackingSensor(SensorEntity):
     def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
         self._attr_native_unit_of_measurement = "PLN/m³"
         self._attr_device_class = SensorDeviceClass.MONETARY
+        self._attr_state_class = SensorStateClass.MEASUREMENT
         self._state: InvoicesList | None = None
         self.hass = hass
         self.api = api
