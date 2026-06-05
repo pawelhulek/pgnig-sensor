@@ -1,0 +1,4 @@
+refresh:
+  name: Refresh
+  description: Force refresh all sensor data for this integration.
+  fields: {}
