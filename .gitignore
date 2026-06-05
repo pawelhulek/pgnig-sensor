@@ -2,6 +2,12 @@
 /venv/*
 /.venv/*
 
+__pycache__/
+*.pyc
+.DS_Store
+.coverage
+test_orlen.py
+
 # Home Assistant runtime files
 /ha_config/.storage/
 /ha_config/.homeassistant/
