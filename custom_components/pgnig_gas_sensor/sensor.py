@@ -118,8 +118,10 @@ class PgnigSensor(SensorEntity):
         return attrs
 
     async def async_update(self):
+        _LOGGER.debug("Updating meter sensor %s", self.meter_id)
         latest_meter_reading: MeterReading = await self.hass.async_add_executor_job(self.latestMeterReading)
         self._state = latest_meter_reading
+        _LOGGER.debug("Meter sensor %s updated: %s", self.meter_id, self._state.value if self._state else None)
 
     def latestMeterReading(self):
         readings = self.api.readingForMeter(self.meter_id).meter_readings
@@ -175,7 +177,10 @@ class PgnigInvoiceSensor(SensorEntity):
         return attrs
 
     async def async_update(self):
+        _LOGGER.debug("Updating invoice sensor %s", self.meter_id)
         self._state = await self.hass.async_add_executor_job(self.invoices_summary)
+        _LOGGER.debug("Invoice sensor %s updated: sumOfUnpaidInvoices=%s", self.meter_id,
+                     self._state.get("sumOfUnpaidInvoices") if self._state else None)
 
     def invoices_summary(self):
         id_local = self.id_local
@@ -252,7 +257,9 @@ class PgnigCostTrackingSensor(SensorEntity):
         return attrs
 
     async def async_update(self):
+        _LOGGER.debug("Updating cost tracking sensor %s", self.meter_id)
         self._state = await self.hass.async_add_executor_job(self.latest_price)
+        _LOGGER.debug("Cost tracking sensor %s updated: %s", self.meter_id, self.state)
 
     def latest_price(self):
         id_local = self.id_local

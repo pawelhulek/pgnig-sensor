@@ -50,7 +50,10 @@ class PgnigRefreshButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Handle the button press."""
+        _LOGGER.debug("Refresh button pressed for meter %s (id_local=%d, entry=%s)",
+                     self.meter_id, self.id_local, self._entry_id)
         await self.hass.services.async_call(
             DOMAIN, "refresh", {},
             blocking=True
         )
+        _LOGGER.debug("Refresh complete for meter %s", self.meter_id)
