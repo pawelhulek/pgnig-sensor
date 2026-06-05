@@ -61,6 +61,7 @@ class ApiLoginAuth(AuthMethod):
             _LOGGER.debug("Using cached auth token")
             return self._cached_token
 
+        _LOGGER.debug("Starting API login for user %s", self.username)
         self._init_session()
 
         payload = {"identificator": self.username,
@@ -69,13 +70,17 @@ class ApiLoginAuth(AuthMethod):
                    "DeviceId": self._device_id,
                    "DeviceName": "Home Assistant",
                    "DeviceType": "Web"}
+        _LOGGER.debug("Posting to %s", login_url)
         response = self._session.post(login_url, json=payload, timeout=30)
         _LOGGER.debug("Login response status: %s, body: %s", response.status_code, response.text[:500])
         if not response.ok:
+            _LOGGER.error("Login HTTP %s: %s", response.status_code, response.text[:200])
             raise RuntimeError(f"Login failed with status {response.status_code}: {response.text[:200]}")
         try:
             data = response.json()
         except ValueError as e:
+            _LOGGER.error("Non-JSON login response (status %s): headers=%s, body=%s",
+                         response.status_code, dict(response.headers), response.text[:500])
             raise RuntimeError(
                 f"Login returned non-JSON response (status {response.status_code}). "
                 f"Headers: {dict(response.headers)}. "
@@ -83,6 +88,8 @@ class ApiLoginAuth(AuthMethod):
             ) from e
         token = data.get('Token')
         if not token:
+            _LOGGER.error("Login response missing Token field: %s", data)
             raise RuntimeError(f"Login response missing 'Token' field: {data}")
         self._cached_token = token
+        _LOGGER.debug("Token obtained: %s...", token[:20])
         return token
