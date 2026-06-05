@@ -1,5 +1,5 @@
 """Tests for PGNIG button entity."""
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, ANY
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -36,9 +36,9 @@ def mock_api():
     return api
 
 
-def test_button_entity_attributes(mock_api):
+def test_button_entity_attributes():
     button = PgnigRefreshButton(
-        MagicMock(), mock_api, "METER1", 1
+        MagicMock(), "METER1", 1, "entry_123"
     )
     assert button.unique_id == "pgnig_refresh_METER1_1"
     assert button._attr_has_entity_name is True
@@ -47,17 +47,15 @@ def test_button_entity_attributes(mock_api):
     assert button.device_info["identifiers"] == {(DOMAIN, "METER1")}
 
 
-async def test_button_press_calls_meter_list(mock_api):
-    button = PgnigRefreshButton(
-        MagicMock(), mock_api, "METER1", 1
-    )
-
-    async def executor_job(fn, *args):
-        return fn(*args)
-
-    button.hass.async_add_executor_job = executor_job
+async def test_button_press_calls_refresh_service():
+    hass = MagicMock()
+    hass.services.async_call = AsyncMock()
+    button = PgnigRefreshButton(hass, "METER1", 1, "entry_123")
     await button.async_press()
-    mock_api.meterList.assert_called_once()
+    hass.services.async_call.assert_awaited_once_with(
+        DOMAIN, "refresh", {},
+        blocking=True
+    )
 
 
 async def test_async_setup_entry_creates_buttons(hass: HomeAssistant, mock_api):
@@ -67,16 +65,14 @@ async def test_async_setup_entry_creates_buttons(hass: HomeAssistant, mock_api):
         "password": "pass",
         "auth_method": "api_login",
     }
+    config_entry.entry_id = "test_entry"
 
     async_add_entities = MagicMock()
+    hass.data = {DOMAIN: {"test_entry": mock_api}}
 
-    with patch(
-        "custom_components.pgnig_gas_sensor.button.PgnigApi",
-        return_value=mock_api,
-    ):
-        await async_setup_entry(hass, config_entry, async_add_entities)
-        async_add_entities.assert_called_once()
-        buttons = async_add_entities.call_args[0][0]
-        assert len(buttons) == 1
-        assert isinstance(buttons[0], PgnigRefreshButton)
-        assert buttons[0].meter_id == "METER1"
+    await async_setup_entry(hass, config_entry, async_add_entities)
+    async_add_entities.assert_called_once()
+    buttons = async_add_entities.call_args[0][0]
+    assert len(buttons) == 1
+    assert isinstance(buttons[0], PgnigRefreshButton)
+    assert buttons[0].meter_id == "METER1"

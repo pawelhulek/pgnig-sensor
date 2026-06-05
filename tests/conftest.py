@@ -1,4 +1,6 @@
 """Global fixtures for pgnig_sensor integration."""
+import logging
+
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
 )
@@ -7,3 +9,6 @@ from pytest_homeassistant_custom_component.common import (
 # The `enable_custom_integrations` fixture is provided by
 # pytest-homeassistant-custom-component plugin.
 # Individual test files should request it when needed.
+
+
+logging.getLogger("custom_components.pgnig_gas_sensor").setLevel(logging.DEBUG)

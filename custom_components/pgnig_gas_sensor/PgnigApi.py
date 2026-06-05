@@ -58,4 +58,5 @@ class PgnigApi:
         return invoices_from_dict(resp.json())
 
     def login(self) -> str:
+        _LOGGER.debug("PgnigApi.login() delegating to %s", type(self._auth).__name__)
         return self._auth.login()

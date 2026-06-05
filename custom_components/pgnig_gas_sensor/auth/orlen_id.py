@@ -60,6 +60,7 @@ class OrlenIDAuth(AuthMethod):
             _LOGGER.debug("Using cached auth token")
             return self._cached_token
 
+        _LOGGER.debug("Starting OrlenID login flow for user %s", self.username)
         self._init_session()
 
         init_url = f'{BASE_URL}/auth/oid/init-login?api-version=3.0'
@@ -72,14 +73,17 @@ class OrlenIDAuth(AuthMethod):
         }
 
         response_init = self._session.post(init_url, json=init_data, timeout=30)
-        _LOGGER.debug("Init login status: %s", response_init.status_code)
+        _LOGGER.debug("Init login response: status=%s, body=%s", response_init.status_code, response_init.text[:300])
         redirect_url = response_init.json().get('RedirectUrl')
+        _LOGGER.debug("Redirect URL received: %s", redirect_url)
 
         response_page = self._session.get(redirect_url, timeout=30)
         match = re.search(r'action="([^"]+)"', response_page.text)
+        _LOGGER.debug("Login page fetched: status=%s, form action found=%s", response_page.status_code, match is not None)
 
         if match:
             post_url = match.group(1).replace('&amp;', '&')
+            _LOGGER.debug("Posting credentials to %s", post_url)
             payload = {
                 'username': self.username,
                 'password': self.password,
@@ -89,14 +93,25 @@ class OrlenIDAuth(AuthMethod):
                 'Referer': redirect_url,
                 'Content-Type': 'application/x-www-form-urlencoded',
             }, timeout=30)
+            _LOGGER.debug("Credentials posted: final_url=%s, status=%s", final_response.url, final_response.status_code)
 
             if f"{BASE_URL}/home" in final_response.url:
+                _LOGGER.debug("Login successful, fetching auth token")
                 auth_token_url = f'{BASE_URL}/auth/get-auth-token?deviceId={self._device_id}&api-version=3.0'
                 res_auth = self._session.get(auth_token_url, headers={
                     'Accept': 'application/json, text/plain, */*',
                     'Referer': f'{BASE_URL}/home',
                 }, timeout=30)
+                _LOGGER.debug("Auth token response: status=%s", res_auth.status_code)
                 if res_auth.status_code == 200:
                     self._cached_token = res_auth.json().get('Token', "")
+                    token_preview = self._cached_token[:20] + "..." if self._cached_token else "empty"
+                    _LOGGER.debug("Token obtained: %s", token_preview)
                     return self._cached_token
+                else:
+                    _LOGGER.debug("Auth token request failed: status=%s, body=%s", res_auth.status_code, res_auth.text[:200])
+            else:
+                _LOGGER.debug("Login failed: redirect ended at %s instead of %s/home", final_response.url, BASE_URL)
+        else:
+            _LOGGER.debug("Login form not found in page at %s", redirect_url)
         return ""
