@@ -23,3 +23,7 @@ class MfaFailedError(AuthError):
 
 class MfaSessionExpiredError(MfaFailedError):
     """MFA session expired; user must log in again with password."""
+
+
+class SessionExpiredError(AuthError):
+    """OIDC session cookies expired; user must re-authenticate in config flow."""

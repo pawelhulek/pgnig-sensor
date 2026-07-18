@@ -31,6 +31,10 @@ class AuthMethod(ABC):
     def login(self) -> str:
         pass
 
+    @abstractmethod
+    def invalidate_token(self) -> None:
+        pass
+
 
 class AuthRegistry:
     _methods: dict[str, type[AuthMethod]] = {}
@@ -59,5 +63,11 @@ def device_id(username: str) -> str:
 
 
 from .api_login import ApiLoginAuth  # noqa: E402
-from .exceptions import AuthError, InvalidAuthError, MfaFailedError, MfaRequired  # noqa: E402
+from .exceptions import (  # noqa: E402
+    AuthError,
+    InvalidAuthError,
+    MfaFailedError,
+    MfaRequired,
+    SessionExpiredError,
+)
 from .orlen_id import OrlenIDAuth  # noqa: E402

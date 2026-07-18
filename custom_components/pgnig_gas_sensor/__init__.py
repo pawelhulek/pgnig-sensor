@@ -2,15 +2,26 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.sensor import PLATFORM_SCHEMA
 from homeassistant.config_entries import SOURCE_IMPORT
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry
+from homeassistant.helpers.event import async_track_time_interval
 
-from .const import DOMAIN, CONF_AUTH_METHOD, DEFAULT_AUTH_METHOD, CONF_ORLEN_SESSION
+from .auth.exceptions import InvalidAuthError, MfaRequired, SessionExpiredError
+from .const import (
+    AUTH_METHOD_ORLEN_ID,
+    CONF_AUTH_METHOD,
+    CONF_ORLEN_SESSION,
+    DEFAULT_AUTH_METHOD,
+    DOMAIN,
+    ORLEN_SESSION_REFRESH_MINUTES,
+)
 from .PgnigApi import PgnigApi
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,7 +78,55 @@ async def async_setup_entry(hass, config_entry):
     )
     _LOGGER.debug("Registered service %s.refresh", DOMAIN)
 
+    if auth_method == AUTH_METHOD_ORLEN_ID:
+
+        @callback
+        def _schedule_orlen_session_refresh(_now) -> None:
+            hass.async_create_task(
+                _async_refresh_orlen_session(hass, config_entry)
+            )
+
+        config_entry.async_on_unload(
+            async_track_time_interval(
+                hass,
+                _schedule_orlen_session_refresh,
+                timedelta(minutes=ORLEN_SESSION_REFRESH_MINUTES),
+            )
+        )
+
     return True
+
+
+async def _async_refresh_orlen_session(hass: HomeAssistant, config_entry) -> None:
+    """Refresh OrlenID cookies/token in the background without MFA."""
+    api = hass.data[DOMAIN].get(config_entry.entry_id)
+    if api is None:
+        return
+
+    def _refresh() -> tuple[str, dict | None]:
+        token = api.refresh_auth_token()
+        return token, api.export_orlen_session()
+
+    try:
+        token, session = await hass.async_add_executor_job(_refresh)
+    except (MfaRequired, InvalidAuthError, SessionExpiredError) as err:
+        _LOGGER.warning(
+            "OrlenID session expired and requires re-authentication: %s", err
+        )
+        hass.async_create_task(hass.config_entries.async_start_reauth(config_entry))
+        return
+    except Exception as err:
+        _LOGGER.warning("Background OrlenID session refresh failed: %s", err)
+        return
+
+    if not token or not session:
+        return
+
+    hass.config_entries.async_update_entry(
+        config_entry,
+        data={**config_entry.data, CONF_ORLEN_SESSION: session},
+    )
+    _LOGGER.debug("OrlenID session refreshed in background")
 
 
 async def async_unload_entry(hass, config_entry):

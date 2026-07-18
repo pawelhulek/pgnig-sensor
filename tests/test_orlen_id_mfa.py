@@ -23,6 +23,7 @@ from custom_components.pgnig_gas_sensor.const import (
 )
 
 SMS_FORM_HTML = """
+<p>Wpisz kod SMS weryfikacyjny</p>
 <form action="https://oid-ws.orlen.pl/realms/oid/login-actions/authenticate?session_code=abc"
       method="post">
   <input type="text" id="code" name="code" />
@@ -37,6 +38,11 @@ OTP_FORM_HTML = """
   <input name="login" type="submit" value="Log In" />
 </form>
 """
+
+
+@pytest.fixture(autouse=True)
+def auto_enable(enable_custom_integrations):
+    yield
 
 
 def test_find_mfa_form_detects_sms_code_field():
@@ -78,6 +84,15 @@ def test_cookie_storage_roundtrip_preserves_values():
 
     assert restored.cookies.get("KEYCLOAK_SESSION") == "abc"
     assert restored.cookies.get("pgnig-ebok-device-token") == "device123"
+
+
+def test_restore_cookies_handles_empty_domain():
+    session = requests.Session()
+    _restore_cookies(
+        session,
+        [{"name": "KEYCLOAK_SESSION", "value": "abc", "domain": "", "path": "/"}],
+    )
+    assert session.cookies.get("KEYCLOAK_SESSION") == "abc"
 
 
 def test_export_session_contains_token_and_cookies():

@@ -49,6 +49,12 @@ def test_login_returns_cached_token(auth):
         mock_init.assert_not_called()
 
 
+def test_invalidate_token_clears_cache(auth):
+    auth._cached_token = "cached-token-123"
+    auth.invalidate_token()
+    assert auth._cached_token == ""
+
+
 def test_login_success(auth):
     with patch.object(auth, "_session") as mock_session:
         mock_session.get.return_value = _make_mock_response(status_code=200)

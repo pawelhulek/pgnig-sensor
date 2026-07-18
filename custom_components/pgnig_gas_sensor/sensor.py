@@ -18,7 +18,7 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from .Invoices import InvoicesList
 from .PgnigApi import PgnigApi
 from .PpgReadingForMeter import MeterReading
-from .const import DOMAIN
+from .const import DEFAULT_AUTH_METHOD, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({

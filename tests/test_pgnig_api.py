@@ -159,3 +159,40 @@ def test_api_uses_auth_session(api, mock_auth):
     call_args = mock_auth.session.get.call_args
     headers = call_args[1]["headers"]
     assert headers["AuthToken"] == "test-token"
+
+
+def test_meter_list_retries_on_401(api, mock_auth):
+    unauthorized = MagicMock()
+    unauthorized.status_code = 401
+    unauthorized.ok = False
+    unauthorized.text = '{"Message": "Authorization has been denied for this request."}'
+
+    authorized = MagicMock()
+    authorized.status_code = 200
+    authorized.ok = True
+    authorized.json.return_value = mock_auth.session.get.return_value.json.return_value
+
+    mock_auth.session.get.side_effect = [unauthorized, authorized]
+    mock_auth.login.side_effect = ["stale-token", "fresh-token"]
+
+    ppg = api.meterList()
+    assert ppg is not None
+    assert mock_auth.login.call_count == 2
+    mock_auth.invalidate_token.assert_called_once()
+    assert mock_auth.session.get.call_count == 2
+    assert mock_auth.session.get.call_args_list[1][1]["headers"]["AuthToken"] == "fresh-token"
+
+
+def test_reading_for_meter_raises_after_repeated_401(api, mock_auth):
+    unauthorized = MagicMock()
+    unauthorized.status_code = 401
+    unauthorized.ok = False
+    unauthorized.text = '{"Message": "Authorization has been denied for this request."}'
+    mock_auth.session.get.side_effect = [unauthorized, unauthorized]
+    mock_auth.login.side_effect = ["stale-token", "fresh-token"]
+
+    with pytest.raises(RuntimeError, match="Reading failed with status 401"):
+        api.readingForMeter("123")
+
+    assert mock_auth.login.call_count == 2
+    mock_auth.invalidate_token.assert_called_once()

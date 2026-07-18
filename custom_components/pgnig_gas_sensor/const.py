@@ -6,3 +6,4 @@ CONF_MFA_CODE = "mfa_code"
 CONF_ORLEN_SESSION = "orlen_session"
 DEFAULT_AUTH_METHOD = "api_login"
 AUTH_METHOD_ORLEN_ID = "orlen_id"
+ORLEN_SESSION_REFRESH_MINUTES = 30

@@ -76,7 +76,9 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
         auth_method: str,
     ) -> None:
         api = PgnigApi(username, password, auth_method)
-        await self.hass.async_add_executor_job(api.login)
+        await self.hass.async_add_executor_job(
+            lambda: api.login(allow_interactive=True)
+        )
         self._authenticated_api = api
 
     async def _perform_mfa(self, code: str) -> None:

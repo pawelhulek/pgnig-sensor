@@ -16,6 +16,7 @@ from .exceptions import (
     MfaFailedError,
     MfaRequired,
     MfaSessionExpiredError,
+    SessionExpiredError,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -217,7 +218,7 @@ class OrlenIDAuth(AuthMethod):
                 cookiejar_from_dict(cookies, self._session.cookies)
             elif cookies:
                 _restore_cookies(self._session, cookies)
-            self._cached_token = session_data.get("token", "")
+            # Persisted token is not restored — it expires independently of OIDC cookies.
         self._session.cookies.set("pgnig-ebok-device-token", self._device_id)
 
     @property
@@ -414,7 +415,7 @@ class OrlenIDAuth(AuthMethod):
         }
 
     def _try_restore_session_token(self) -> str | None:
-        if not self._cached_token and not list(self._session.cookies.keys()):
+        if not list(self._session.cookies.keys()):
             return None
         try:
             return self._fetch_auth_token()
@@ -423,7 +424,12 @@ class OrlenIDAuth(AuthMethod):
             self._cached_token = ""
             return None
 
-    def login(self) -> str:
+    def invalidate_token(self) -> None:
+        """Drop in-memory API token so the next login() fetches a fresh one."""
+        _LOGGER.debug("Invalidating cached auth token")
+        self._cached_token = ""
+
+    def login(self, *, allow_interactive: bool = False) -> str:
         if self._cached_token:
             _LOGGER.debug("Using cached auth token")
             return self._cached_token
@@ -431,6 +437,11 @@ class OrlenIDAuth(AuthMethod):
         restored = self._try_restore_session_token()
         if restored:
             return restored
+
+        if not allow_interactive:
+            raise SessionExpiredError(
+                "OrlenID session expired; re-authenticate in Home Assistant"
+            )
 
         _LOGGER.debug("Starting OrlenID login flow for user %s", self.username)
         self._init_session()
