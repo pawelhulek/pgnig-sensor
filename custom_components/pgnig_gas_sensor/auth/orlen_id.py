@@ -503,6 +503,28 @@ class OrlenIDAuth(AuthMethod):
             final_response.status_code,
         )
 
+        if "CANCEL_2FA" in final_response.text:
+            _LOGGER.debug("Found 2FA enrollment screen, attempting to skip...")
+            match = re.search(r'action="([^"]+)"', final_response.text)
+            if match:
+                action_url = match.group(1).replace("&amp;", "&")
+                final_response = self._session.post(
+                    action_url,
+                    data={"CANCEL_2FA": "Pomiń"},
+                    headers={
+                        **FORM_URLENCODED_HEADERS,
+                        "Referer": final_response.url,
+                        "Origin": urljoin(action_url, "/"),
+                    },
+                    timeout=30,
+                    allow_redirects=True,
+                )
+                _LOGGER.debug(
+                    "Skipped 2FA enrollment: final_url=%s, status=%s",
+                    final_response.url,
+                    final_response.status_code,
+                )
+
         if _looks_like_mfa_challenge(final_response):
             raise MfaRequired(self._build_pending_mfa(final_response))
 
