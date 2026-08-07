@@ -9,6 +9,14 @@ class InvalidAuthError(AuthError):
     """Username or password was rejected."""
 
 
+class AccountActionRequiredError(AuthError):
+    """OrlenID requires an account action that must be completed in a browser."""
+
+
+class UnexpectedLoginPageError(AuthError):
+    """OrlenID answered with a page the login flow does not recognise."""
+
+
 class MfaRequired(AuthError):
     """OrlenID login requires an MFA code; session state is preserved for the next step."""
 

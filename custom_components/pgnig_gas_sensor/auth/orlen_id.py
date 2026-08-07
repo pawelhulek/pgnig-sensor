@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import re
-from html import unescape
 from typing import Any
 from urllib.parse import urljoin
 
@@ -12,14 +11,45 @@ from requests.cookies import cookiejar_from_dict
 
 from . import AuthMethod, AuthMethodInfo, AuthRegistry, device_id
 from .exceptions import (
+    AccountActionRequiredError,
     InvalidAuthError,
     MfaFailedError,
     MfaRequired,
     MfaSessionExpiredError,
     SessionExpiredError,
+    UnexpectedLoginPageError,
+)
+from .keycloak import (
+    LOGIN_FORM_FIELD_NAMES,
+    MFA_FIELD_CANDIDATES,
+    PageKind,
+    build_mfa_payload,
+    classify_page,
+    describe_page,
+    detect_mfa_field,
+    extract_error_message,
+    extract_form,
+    find_mfa_form,
+    find_skip_action,
+    is_keycloak_url,
+    is_login_page,
+    iter_forms,
+    normalize_otp_code,
+    required_action_description,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Backwards compatible aliases and re-exports; parsing now lives in keycloak.py.
+__all__ = ["OrlenIDAuth", "LOGIN_FORM_FIELD_NAMES", "MFA_FIELD_CANDIDATES"]
+_iter_forms = iter_forms
+_extract_form = extract_form
+_find_mfa_form = find_mfa_form
+_detect_mfa_field = detect_mfa_field
+_is_keycloak_url = is_keycloak_url
+_is_login_page = is_login_page
+_normalize_otp_code = normalize_otp_code
+_build_mfa_payload = build_mfa_payload
 
 BASE_URL = "https://ebok.myorlen.pl"
 
@@ -47,94 +77,28 @@ FORM_URLENCODED_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-# netzbegruenung SMS authenticator uses name="code"; login-otp.ftl uses "otp"/"totp".
-MFA_FIELD_CANDIDATES = ("code", "otp", "totp", "smsCode", "mfa_code", "verificationCode")
-
-LOGIN_FORM_FIELD_NAMES = {"username", "password", "credentialId"}
 
 
-def _iter_forms(html: str, base_url: str) -> list[tuple[str, dict[str, str]]]:
-    forms: list[tuple[str, dict[str, str]]] = []
-    for form_match in re.finditer(
-        r"<form\b[^>]*action=\"([^\"]+)\"[^>]*>(.*?)</form>",
-        html,
-        re.IGNORECASE | re.DOTALL,
-    ):
-        action = unescape(form_match.group(1).replace("&amp;", "&"))
-        if action.startswith("/"):
-            action = urljoin(base_url, action)
-        fields: dict[str, str] = {}
-        for input_match in re.finditer(
-            r"<input[^>]+name=\"([^\"]+)\"[^>]*>",
-            form_match.group(2),
-            re.IGNORECASE,
-        ):
-            tag = input_match.group(0)
-            name = input_match.group(1)
-            value_match = re.search(r'value="([^"]*)"', tag, re.IGNORECASE)
-            input_type = re.search(r'type="([^"]+)"', tag, re.IGNORECASE)
-            if input_type and input_type.group(1).lower() in {"submit", "button", "image"}:
-                if name:
-                    fields[name] = value_match.group(1) if value_match else ""
-                continue
-            fields[name] = unescape(value_match.group(1) if value_match else "")
-        forms.append((action, fields))
-    return forms
+def _find_credentials_form(html: str, base_url: str) -> tuple[str, dict[str, str]]:
+    """Locate the username/password form and its hidden fields on the SSO page.
 
-
-def _extract_form(html: str, base_url: str) -> tuple[str, dict[str, str]]:
-    forms = _iter_forms(html, base_url)
-    return forms[0] if forms else ("", {})
-
-
-def _find_mfa_form(html: str, base_url: str) -> tuple[str, dict[str, str], str]:
-    """Return MFA form action, hidden fields, and OTP field name."""
-    for action, fields in _iter_forms(html, base_url):
-        field_name = _detect_mfa_field(html, fields)
-        if not field_name:
-            continue
-        mfa_fields = {
-            k: v
-            for k, v in fields.items()
-            if k not in LOGIN_FORM_FIELD_NAMES and k != field_name
-        }
-        return action, mfa_fields, field_name
-    return "", {}, ""
-
-
-def _detect_mfa_field(html: str, fields: dict[str, str]) -> str | None:
-    lowered = html.lower()
-    if not any(
-        token in lowered
-        for token in ("otp", "totp", "sms", "kod", "weryfik", "uwierzyteln", "mfa", "jednoraz")
-    ):
-        return None
-
-    for candidate in MFA_FIELD_CANDIDATES:
-        if candidate in fields:
-            return candidate
-        if re.search(rf'name=["\']{candidate}["\']', html, re.IGNORECASE):
-            return candidate
-    return None
-
-
-def _is_keycloak_url(url: str) -> bool:
-    lowered = url.lower()
-    return any(
-        token in lowered
-        for token in ("login-actions", "openid-connect", "orlenid", "keycloak", "/auth/realms/")
-    )
+    Falls back to the first form action so unfamiliar themes still work.
+    """
+    forms = iter_forms(html, base_url)
+    for action, fields in forms:
+        if "username" in fields and "password" in fields:
+            hidden = {k: v for k, v in fields.items() if k not in {"username", "password"}}
+            return action, hidden
+    if forms:
+        return forms[0][0], {}
+    match = re.search(r'action="([^"]+)"', html)
+    return (match.group(1).replace("&amp;", "&"), {}) if match else ("", {})
 
 
 def _looks_like_mfa_challenge(response: requests.Response) -> bool:
     if f"{BASE_URL}/home" in response.url:
         return False
-    _, _, field_name = _find_mfa_form(response.text, response.url)
-    return bool(field_name)
-
-
-def _normalize_otp_code(code: str) -> str:
-    return re.sub(r"\D", "", (code or "").strip())
+    return classify_page(response.url, response.text) is PageKind.MFA
 
 
 def _cookies_for_storage(jar: requests.cookies.RequestsCookieJar) -> list[dict[str, str]]:
@@ -175,26 +139,6 @@ def _restore_cookies(session: requests.Session, cookies: list[dict[str, str]]) -
             **set_kwargs,
         )
 
-
-def _is_login_page(html: str) -> bool:
-    for _, fields in _iter_forms(html, ""):
-        if "username" in fields and "password" in fields:
-            return _detect_mfa_field(html, fields) is None
-    return False
-
-
-def _build_mfa_payload(
-    form_fields: dict[str, str],
-    field_name: str,
-    otp_code: str,
-) -> dict[str, str]:
-    """Build POST body for MFA form without polluting SMS forms with login fields."""
-    payload = dict(form_fields)
-    payload[field_name] = otp_code
-    # Standard Keycloak OTP/TOTP forms use a submit input named "login".
-    if field_name in {"otp", "totp"} and "login" not in payload:
-        payload["login"] = "Log In"
-    return payload
 
 
 @AuthRegistry.register
@@ -266,10 +210,62 @@ class OrlenIDAuth(AuthMethod):
         self._cached_token = token
         return token
 
+    def _handle_required_action(self, response: requests.Response) -> requests.Response:
+        """Skip a Keycloak required-action screen, or report it to the user."""
+        description = required_action_description(response.text, response.url)
+        _LOGGER.warning(
+            "OrlenID requires an account action (%s) at %s", description, response.url
+        )
+        skipped = self._try_skip_required_action(response)
+        if skipped is not None:
+            return skipped
+        raise AccountActionRequiredError(
+            f"OrlenID requires you to complete {description} before logging in. "
+            f"Open {BASE_URL} in a browser, finish that step for your account, "
+            "then retry the login here."
+        )
+
+    def _try_skip_required_action(
+        self, response: requests.Response
+    ) -> requests.Response | None:
+        """Follow a 'skip / later' control if OrlenID offers one."""
+        skip = find_skip_action(response.text, response.url)
+        if skip is None:
+            return None
+
+        _LOGGER.info("Trying to skip OrlenID required action via %s %s", skip.method, skip.url)
+        if skip.method == "post":
+            skipped = self._session.post(
+                skip.url,
+                data=skip.data or {},
+                headers={
+                    **FORM_URLENCODED_HEADERS,
+                    "Referer": response.url,
+                    "Origin": urljoin(skip.url, "/"),
+                },
+                timeout=30,
+                allow_redirects=True,
+            )
+        else:
+            skipped = self._session.get(
+                skip.url,
+                headers={"Referer": response.url},
+                timeout=30,
+                allow_redirects=True,
+            )
+
+        if required_action_description(skipped.text, skipped.url):
+            _LOGGER.info("OrlenID required action could not be skipped")
+            return None
+        return skipped
+
     def _complete_oidc_session(self, response: requests.Response) -> str:
         """Finish OIDC login after password or MFA and fetch EBOK API token."""
         if _looks_like_mfa_challenge(response):
             raise MfaFailedError("Invalid or expired MFA code")
+
+        if required_action_description(response.text, response.url):
+            response = self._handle_required_action(response)
 
         if _is_keycloak_url(response.url):
             if _is_login_page(response.text):
@@ -490,23 +486,24 @@ class OrlenIDAuth(AuthMethod):
             raise RuntimeError("OrlenID init-login response missing RedirectUrl")
 
         response_page = self._session.get(redirect_url, timeout=30)
-        match = re.search(r'action="([^"]+)"', response_page.text)
+        post_url, form_fields = _find_credentials_form(
+            response_page.text, response_page.url
+        )
         _LOGGER.debug(
             "Login page fetched: status=%s, form action found=%s",
             response_page.status_code,
-            match is not None,
+            bool(post_url),
         )
-        if not match:
+        if not post_url:
             raise RuntimeError("OrlenID login form not found on SSO page")
 
-        post_url = match.group(1).replace("&amp;", "&")
         _LOGGER.debug("Posting credentials to %s", post_url)
         final_response = self._session.post(
             post_url,
             data={
+                **form_fields,
                 "username": self.username,
                 "password": self.password,
-                "credentialId": "",
             },
             headers={
                 **FORM_URLENCODED_HEADERS,
@@ -522,33 +519,36 @@ class OrlenIDAuth(AuthMethod):
             final_response.status_code,
         )
 
-        if "CANCEL_2FA" in final_response.text:
-            _LOGGER.debug("Found 2FA enrollment screen, attempting to skip...")
-            match = re.search(r'action="([^"]+)"', final_response.text)
-            if match:
-                action_url = match.group(1).replace("&amp;", "&")
-                final_response = self._session.post(
-                    action_url,
-                    data={"CANCEL_2FA": "Pomiń"},
-                    headers={
-                        **FORM_URLENCODED_HEADERS,
-                        "Referer": final_response.url,
-                        "Origin": urljoin(action_url, "/"),
-                    },
-                    timeout=30,
-                    allow_redirects=True,
-                )
-                _LOGGER.debug(
-                    "Skipped 2FA enrollment: final_url=%s, status=%s",
-                    final_response.url,
-                    final_response.status_code,
-                )
-
-        if _looks_like_mfa_challenge(final_response):
-            raise MfaRequired(self._build_pending_mfa(final_response))
-
+        # The 2FA enrollment screen (CANCEL_2FA / "Pomiń") is handled generically
+        # as a Keycloak required action - see _handle_required_action below.
         if f"{BASE_URL}/home" in final_response.url:
             return self._fetch_auth_token()
+
+        page_kind = classify_page(final_response.url, final_response.text)
+        _LOGGER.debug("Post-credentials page classified as %s", page_kind.value)
+
+        if page_kind is PageKind.MFA:
+            raise MfaRequired(self._build_pending_mfa(final_response))
+
+        if page_kind is PageKind.REQUIRED_ACTION:
+            final_response = self._handle_required_action(final_response)
+            if f"{BASE_URL}/home" in final_response.url:
+                return self._fetch_auth_token()
+            page_kind = classify_page(final_response.url, final_response.text)
+            if page_kind is PageKind.MFA:
+                raise MfaRequired(self._build_pending_mfa(final_response))
+
+        if page_kind is PageKind.LOGIN_REJECTED:
+            raise InvalidAuthError(
+                "OrlenID rejected the credentials: "
+                f"{extract_error_message(final_response.text)}"
+            )
+
+        if page_kind is PageKind.LOGIN_FORM:
+            raise InvalidAuthError(
+                "OrlenID returned the login form again without completing login — "
+                "the username or password is most likely incorrect."
+            )
 
         if not _is_keycloak_url(final_response.url):
             try:
@@ -556,6 +556,8 @@ class OrlenIDAuth(AuthMethod):
             except MfaFailedError:
                 pass
 
-        raise InvalidAuthError(
-            "OrlenID rejected credentials — username or password is incorrect"
+        raise UnexpectedLoginPageError(
+            "OrlenID login did not complete and the page is not recognised: "
+            f"{describe_page(final_response.url, final_response.text)}. "
+            "Please report this with debug logs enabled."
         )

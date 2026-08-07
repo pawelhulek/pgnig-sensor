@@ -4,8 +4,17 @@ import logging
 import requests
 
 from . import AuthMethod, AuthMethodInfo, AuthRegistry, device_id
+from .exceptions import InvalidAuthError
 
 _LOGGER = logging.getLogger(__name__)
+
+# Orlen answers 401 with an empty body both for wrong credentials and for
+# accounts that have been migrated to OrlenID, so the hint covers both.
+LEGACY_REJECTED_MESSAGE = (
+    "Orlen EBOK rejected the legacy API login (HTTP {status}). Either the "
+    "credentials are wrong, or the account has been migrated to OrlenID — "
+    "reconfigure the integration and pick the \"OrlenID\" login method."
+)
 
 BASE_URL = "https://ebok.myorlen.pl"
 login_url = f"{BASE_URL}/auth/login?api-version=3.0"
@@ -80,6 +89,10 @@ class ApiLoginAuth(AuthMethod):
         _LOGGER.debug("Login response status: %s, body: %s", response.status_code, response.text[:500])
         if not response.ok:
             _LOGGER.error("Login HTTP %s: %s", response.status_code, response.text[:200])
+            if response.status_code in (401, 403):
+                raise InvalidAuthError(
+                    LEGACY_REJECTED_MESSAGE.format(status=response.status_code)
+                )
             raise RuntimeError(f"Login failed with status {response.status_code}: {response.text[:200]}")
         try:
             data = response.json()

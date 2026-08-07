@@ -5,7 +5,57 @@ import pytest
 import requests
 
 from custom_components.pgnig_gas_sensor.auth import AuthRegistry
-from custom_components.pgnig_gas_sensor.auth.exceptions import InvalidAuthError, SessionExpiredError
+from custom_components.pgnig_gas_sensor.auth.exceptions import (
+    AccountActionRequiredError,
+    InvalidAuthError,
+    SessionExpiredError,
+    UnexpectedLoginPageError,
+)
+
+# Shapes taken from the live OrlenID (Keycloak) theme at oid-ws.orlen.pl.
+LOGIN_FORM_HTML = """
+<form id="kc-form-login" action="https://oid.example.com/auth" method="post">
+  <input id="username" name="username" value="" type="text" />
+  <input id="password" name="password" type="password" />
+  <input type="hidden" id="id-hidden-input" name="credentialId" />
+</form>
+"""
+
+REJECTED_LOGIN_HTML = """
+<form id="kc-form-login" action="https://oid.example.com/auth" method="post">
+  <input id="username" name="username" value="" type="text" aria-invalid="true" />
+  <span id="input-error" class="kc-feedback-text">Nieprawidłowa nazwa użytkownika lub hasło.</span>
+  <input id="password" name="password" type="password" />
+  <input type="hidden" id="id-hidden-input" name="credentialId" />
+</form>
+"""
+
+TOTP_SETUP_HTML = """
+<h1>Skonfiguruj aplikację uwierzytelniającą</h1>
+<form id="kc-totp-settings-form" action="https://oid.example.com/required-action" method="post">
+  <input type="hidden" name="totpSecret" value="ABC123" />
+  <input type="text" id="totp" name="totp" />
+  <input type="text" id="userLabel" name="userLabel" />
+</form>
+"""
+
+ORLEN_2FA_ENROLLMENT_HTML = """
+<h1>Włącz weryfikację dwuetapową</h1>
+<form id="kc-totp-settings-form" action="https://oid.example.com/required-action" method="post">
+  <input type="hidden" name="execution" value="abc" />
+  <input type="text" id="totp" name="totp" />
+  <button type="submit" name="CANCEL_2FA" value="Pomiń">Pomiń</button>
+</form>
+"""
+
+TOTP_SETUP_SKIPPABLE_HTML = """
+<h1>Skonfiguruj aplikację uwierzytelniającą</h1>
+<form id="kc-totp-settings-form" action="https://oid.example.com/required-action" method="post">
+  <input type="hidden" name="totpSecret" value="ABC123" />
+  <input type="text" id="totp" name="totp" />
+  <input type="submit" name="cancel-aia" value="true" />
+</form>
+"""
 
 
 def _mock_resp(json_data=None, status_code=200, text=""):
@@ -88,11 +138,11 @@ def test_login_raises_when_login_form_missing(auth):
             auth.login(allow_interactive=True)
 
 
-def test_login_raises_invalid_auth_when_not_redirected_to_home(auth):
+def test_login_raises_unexpected_page_when_response_is_unrecognized(auth):
     with patch.object(auth, "_session") as mock_session, patch.object(
         auth, "_try_restore_session_token", return_value=None
     ):
-        cred_resp = _mock_resp(status_code=200)
+        cred_resp = _mock_resp(status_code=200, text="<html><title>Przerwa</title></html>")
         cred_resp.url = "https://oid-ws.orlen.pl/login-actions/authenticate"
         mock_session.post.side_effect = [
             _mock_resp({"RedirectUrl": "https://oid.example.com/auth"}, status_code=200),
@@ -102,8 +152,130 @@ def test_login_raises_invalid_auth_when_not_redirected_to_home(auth):
             _mock_resp(status_code=200),
             _mock_resp(text='<form action="https://oid.example.com/auth">'),
         ]
-        with pytest.raises(InvalidAuthError):
+        with pytest.raises(UnexpectedLoginPageError, match="Przerwa"):
             auth.login(allow_interactive=True)
+
+
+def test_login_raises_invalid_auth_with_server_message_on_rejected_credentials(auth):
+    with patch.object(auth, "_session") as mock_session, patch.object(
+        auth, "_try_restore_session_token", return_value=None
+    ):
+        cred_resp = _mock_resp(status_code=200, text=REJECTED_LOGIN_HTML)
+        cred_resp.url = "https://oid-ws.orlen.pl/realms/oid/login-actions/authenticate"
+        mock_session.post.side_effect = [
+            _mock_resp({"RedirectUrl": "https://oid.example.com/auth"}, status_code=200),
+            cred_resp,
+        ]
+        mock_session.get.side_effect = [
+            _mock_resp(status_code=200),
+            _mock_resp(text=LOGIN_FORM_HTML),
+        ]
+        with pytest.raises(
+            InvalidAuthError, match="Nieprawidłowa nazwa użytkownika lub hasło"
+        ):
+            auth.login(allow_interactive=True)
+
+
+def test_login_raises_account_action_required_when_step_cannot_be_skipped(auth):
+    with patch.object(auth, "_session") as mock_session, patch.object(
+        auth, "_try_restore_session_token", return_value=None
+    ):
+        cred_resp = _mock_resp(status_code=200, text=TOTP_SETUP_HTML)
+        cred_resp.url = (
+            "https://oid-ws.orlen.pl/realms/oid/login-actions/required-action"
+            "?execution=CONFIGURE_TOTP"
+        )
+        mock_session.post.side_effect = [
+            _mock_resp({"RedirectUrl": "https://oid.example.com/auth"}, status_code=200),
+            cred_resp,
+        ]
+        mock_session.get.side_effect = [
+            _mock_resp(status_code=200),
+            _mock_resp(text=LOGIN_FORM_HTML),
+        ]
+        with pytest.raises(
+            AccountActionRequiredError, match="two-factor authentication setup"
+        ):
+            auth.login(allow_interactive=True)
+
+
+def test_login_skips_optional_action_and_completes(auth):
+    """Keycloak offers a 'skip' button for optional actions; follow it and finish."""
+    with patch.object(auth, "_session") as mock_session, patch.object(
+        auth, "_try_restore_session_token", return_value=None
+    ):
+        auth._device_id = "mocked-device-id"
+        action_resp = _mock_resp(status_code=200, text=TOTP_SETUP_SKIPPABLE_HTML)
+        action_resp.url = (
+            "https://oid-ws.orlen.pl/realms/oid/login-actions/required-action"
+            "?execution=CONFIGURE_TOTP"
+        )
+        skipped_resp = _mock_resp(status_code=200, text="<html>Witaj</html>")
+        skipped_resp.url = "https://ebok.myorlen.pl/home"
+        mock_session.post.side_effect = [
+            _mock_resp({"RedirectUrl": "https://oid.example.com/auth"}, status_code=200),
+            action_resp,
+            skipped_resp,
+        ]
+        mock_session.get.side_effect = [
+            _mock_resp(status_code=200),
+            _mock_resp(text=LOGIN_FORM_HTML),
+            _mock_resp({"Token": "oid-token-after-skip"}, status_code=200),
+        ]
+        assert auth.login(allow_interactive=True) == "oid-token-after-skip"
+
+
+def test_login_skips_orlen_2fa_enrollment_screen(auth):
+    """Regression for #101/#102: the real 'Włącz weryfikację dwuetapową' screen."""
+    with patch.object(auth, "_session") as mock_session, patch.object(
+        auth, "_try_restore_session_token", return_value=None
+    ):
+        auth._device_id = "mocked-device-id"
+        enrollment = _mock_resp(status_code=200, text=ORLEN_2FA_ENROLLMENT_HTML)
+        enrollment.url = (
+            "https://oid-ws.orlen.pl/realms/oid/login-actions/required-action"
+            "?execution=CONFIGURE_TOTP"
+        )
+        after_skip = _mock_resp(status_code=200, text="<html>Witaj</html>")
+        after_skip.url = "https://ebok.myorlen.pl/home"
+        mock_session.post.side_effect = [
+            _mock_resp({"RedirectUrl": "https://oid.example.com/auth"}, status_code=200),
+            enrollment,
+            after_skip,
+        ]
+        mock_session.get.side_effect = [
+            _mock_resp(status_code=200),
+            _mock_resp(text=LOGIN_FORM_HTML),
+            _mock_resp({"Token": "token-after-2fa-skip"}, status_code=200),
+        ]
+
+        assert auth.login(allow_interactive=True) == "token-after-2fa-skip"
+
+        skip_call = mock_session.post.call_args_list[2]
+        assert skip_call[1]["data"]["CANCEL_2FA"] == "Pomiń"
+
+
+def test_login_posts_hidden_fields_from_credentials_form(auth):
+    with patch.object(auth, "_session") as mock_session, patch.object(
+        auth, "_try_restore_session_token", return_value=None
+    ):
+        auth._device_id = "mocked-device-id"
+        cred_resp = _mock_resp(status_code=200)
+        cred_resp.url = "https://ebok.myorlen.pl/home"
+        mock_session.post.side_effect = [
+            _mock_resp({"RedirectUrl": "https://oid.example.com/auth"}, status_code=200),
+            cred_resp,
+        ]
+        mock_session.get.side_effect = [
+            _mock_resp(status_code=200),
+            _mock_resp(text=LOGIN_FORM_HTML),
+            _mock_resp({"Token": "oid-token-xyz"}, status_code=200),
+        ]
+        auth.login(allow_interactive=True)
+
+        _, kwargs = mock_session.post.call_args_list[1]
+        assert kwargs["data"]["credentialId"] == ""
+        assert kwargs["data"]["username"] == "oid_user@test.pl"
 
 
 def test_login_raises_when_auth_token_request_fails(auth):

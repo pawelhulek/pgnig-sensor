@@ -5,6 +5,7 @@ import pytest
 import requests
 
 from custom_components.pgnig_gas_sensor.auth import AuthRegistry
+from custom_components.pgnig_gas_sensor.auth.exceptions import InvalidAuthError
 
 
 def _make_mock_response(json_data=None, status_code=200, text=""):
@@ -66,11 +67,19 @@ def test_login_success(auth):
         assert auth._cached_token == "real-token-abc"
 
 
-def test_login_raises_on_http_error(auth):
+def test_login_raises_invalid_auth_on_401_and_points_at_orlen_id(auth):
     with patch.object(auth, "_session") as mock_session:
         mock_session.get.return_value = _make_mock_response(status_code=200)
         mock_session.post.return_value = _make_mock_response(status_code=401)
-        with pytest.raises(RuntimeError, match="Login failed with status 401"):
+        with pytest.raises(InvalidAuthError, match="OrlenID"):
+            auth.login()
+
+
+def test_login_raises_on_http_error(auth):
+    with patch.object(auth, "_session") as mock_session:
+        mock_session.get.return_value = _make_mock_response(status_code=200)
+        mock_session.post.return_value = _make_mock_response(status_code=500)
+        with pytest.raises(RuntimeError, match="Login failed with status 500"):
             auth.login()
 
 
