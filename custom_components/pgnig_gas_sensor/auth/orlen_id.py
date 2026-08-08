@@ -420,7 +420,26 @@ class OrlenIDAuth(AuthMethod):
         try:
             return self._fetch_auth_token()
         except RuntimeError:
-            _LOGGER.debug("Stored OrlenID session is no longer valid")
+            _LOGGER.debug("Stored OrlenID session invalid, attempting silent SSO refresh...")
+            try:
+                init_url = f"{BASE_URL}/auth/oid/init-login?api-version=3.0"
+                init_data = {
+                    "DeviceId": self._device_id,
+                    "DeviceType": "Web",
+                    "DeviceName": "HomeAssistant wersja: 0.1",
+                    "LightweightRedirectUrl": f"{BASE_URL}/?show=modal",
+                    "FinalizeRegistrationRedirectUrl": f"{BASE_URL}/aktywuj-oid/",
+                }
+                resp_init = self._session.post(init_url, json=init_data, timeout=30)
+                if resp_init.ok and "RedirectUrl" in resp_init.json():
+                    redirect_url = resp_init.json()["RedirectUrl"]
+                    resp_sso = self._session.get(redirect_url, timeout=30, allow_redirects=True)
+                    if f"{BASE_URL}/home" in resp_sso.url:
+                        _LOGGER.debug("Silent SSO refresh successful")
+                        return self._fetch_auth_token()
+            except Exception as e:
+                _LOGGER.debug("Silent SSO refresh failed: %s", e)
+                
             self._cached_token = ""
             return None
 
@@ -502,6 +521,28 @@ class OrlenIDAuth(AuthMethod):
             final_response.url,
             final_response.status_code,
         )
+
+        if "CANCEL_2FA" in final_response.text:
+            _LOGGER.debug("Found 2FA enrollment screen, attempting to skip...")
+            match = re.search(r'action="([^"]+)"', final_response.text)
+            if match:
+                action_url = match.group(1).replace("&amp;", "&")
+                final_response = self._session.post(
+                    action_url,
+                    data={"CANCEL_2FA": "Pomiń"},
+                    headers={
+                        **FORM_URLENCODED_HEADERS,
+                        "Referer": final_response.url,
+                        "Origin": urljoin(action_url, "/"),
+                    },
+                    timeout=30,
+                    allow_redirects=True,
+                )
+                _LOGGER.debug(
+                    "Skipped 2FA enrollment: final_url=%s, status=%s",
+                    final_response.url,
+                    final_response.status_code,
+                )
 
         if _looks_like_mfa_challenge(final_response):
             raise MfaRequired(self._build_pending_mfa(final_response))

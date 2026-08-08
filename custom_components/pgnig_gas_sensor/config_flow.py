@@ -244,13 +244,18 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
             password = user_input[CONF_PASSWORD]
             try:
                 await self._perform_login(username, password, auth_method)
+                data = {
+                    CONF_USERNAME: username,
+                    CONF_PASSWORD: password,
+                    CONF_AUTH_METHOD: auth_method,
+                }
+                if self._authenticated_api:
+                    session = self._authenticated_api.export_orlen_session()
+                    if session:
+                        data[CONF_ORLEN_SESSION] = session
                 return self.async_create_entry(
                     title="Pgnig sensor",
-                    data={
-                        CONF_USERNAME: username,
-                        CONF_PASSWORD: password,
-                        CONF_AUTH_METHOD: auth_method,
-                    },
+                    data=data,
                 )
             except Exception as exc:
                 result = await self._handle_login_exception(
@@ -290,14 +295,19 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
             password = user_input[CONF_PASSWORD]
             try:
                 await self._perform_login(username, password, auth_method)
+                data = {
+                    **config_entry.data,
+                    CONF_USERNAME: username,
+                    CONF_PASSWORD: password,
+                    CONF_AUTH_METHOD: auth_method,
+                }
+                if self._authenticated_api:
+                    session = self._authenticated_api.export_orlen_session()
+                    if session:
+                        data[CONF_ORLEN_SESSION] = session
                 self.hass.config_entries.async_update_entry(
                     config_entry,
-                    data={
-                        **config_entry.data,
-                        CONF_USERNAME: username,
-                        CONF_PASSWORD: password,
-                        CONF_AUTH_METHOD: auth_method,
-                    },
+                    data=data,
                 )
                 await self.hass.config_entries.async_reload(entry_id)
                 return self.async_abort(reason="reauth_successful")
@@ -347,13 +357,18 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
             password = user_input[CONF_PASSWORD]
             try:
                 await self._perform_login(username, password, auth_method)
+                data = {
+                    CONF_USERNAME: username,
+                    CONF_PASSWORD: password,
+                    CONF_AUTH_METHOD: auth_method,
+                }
+                if self._authenticated_api:
+                    session = self._authenticated_api.export_orlen_session()
+                    if session:
+                        data[CONF_ORLEN_SESSION] = session
                 self.hass.config_entries.async_update_entry(
                     config_entry,
-                    data={
-                        CONF_USERNAME: username,
-                        CONF_PASSWORD: password,
-                        CONF_AUTH_METHOD: auth_method,
-                    },
+                    data=data,
                 )
                 await self.hass.config_entries.async_reload(config_entry.entry_id)
                 return self.async_abort(reason="reconfigure_successful")
