@@ -1,8 +1,11 @@
 import logging
 import threading
+from datetime import date
+from typing import Callable
 
 import requests
 
+from .AddReading import ReadingResult, ReadingSubmission, error_message
 from .Invoices import invoices_from_dict, Invoices
 from .PgpList import PpgList, ppg_list_from_dict
 from .PpgReadingForMeter import PpgReadingForMeter, ppg_reading_for_meter_from_dict
@@ -10,6 +13,7 @@ from .auth import AuthRegistry
 from .auth.exceptions import SessionExpiredError
 from .auth.orlen_id import OrlenIDAuth
 from .const import AUTH_METHOD_ORLEN_ID, DEFAULT_AUTH_METHOD
+from .exceptions import ReadingRejectedError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,6 +26,7 @@ invoices_url = (
     "https://ebok.myorlen.pl/crm/get-invoices-v2"
     "?pageNumber=1&pageSize=12&api-version=3.0"
 )
+add_reading_url = "https://ebok.myorlen.pl/crm/add-ppg-reading-v2?api-version=3.0"
 
 
 class PgnigApi:
@@ -70,7 +75,12 @@ class PgnigApi:
             self.invalidate_token()
             return self._auth.login()
 
-    def _get_authenticated(self, url: str, operation: str) -> requests.Response:
+    def _request_authenticated(
+        self,
+        send: Callable[[str], requests.Response],
+        operation: str,
+    ) -> requests.Response:
+        """Run an authenticated request, refreshing the token once on 401."""
         last_response = None
         for attempt in range(2):
             if attempt > 0:
@@ -83,9 +93,7 @@ class PgnigApi:
             if not token:
                 raise RuntimeError("Login failed - no token received")
 
-            resp = self._auth.session.get(
-                url, headers=self._api_headers(token), timeout=30
-            )
+            resp = send(token)
             if resp.status_code == 401 and attempt == 0:
                 last_response = resp
                 continue
@@ -99,6 +107,24 @@ class PgnigApi:
         body = last_response.text[:200] if last_response else ""
         raise RuntimeError(f"{operation} failed with status {status}: {body}")
 
+    def _get_authenticated(self, url: str, operation: str) -> requests.Response:
+        return self._request_authenticated(
+            lambda token: self._auth.session.get(
+                url, headers=self._api_headers(token), timeout=30
+            ),
+            operation,
+        )
+
+    def _post_authenticated(
+        self, url: str, payload: dict, operation: str
+    ) -> requests.Response:
+        return self._request_authenticated(
+            lambda token: self._auth.session.post(
+                url, json=payload, headers=self._api_headers(token), timeout=30
+            ),
+            operation,
+        )
+
     def meterList(self) -> PpgList:
         resp = self._get_authenticated(devices_list_url, "Meter list")
         return ppg_list_from_dict(resp.json())
@@ -110,6 +136,45 @@ class PgnigApi:
     def invoices(self) -> Invoices:
         resp = self._get_authenticated(invoices_url, "Invoices")
         return invoices_from_dict(resp.json())
+
+    def addReading(
+        self,
+        meter_id: str,
+        value: float,
+        reading_date: date | None = None,
+        consent_meter_reset: bool = False,
+    ) -> ReadingResult:
+        """Submit a meter reading to Orlen EBOK."""
+        submission = ReadingSubmission(
+            meter_id=meter_id,
+            value=value,
+            reading_date=reading_date or date.today(),
+            consent_meter_reset=consent_meter_reset,
+        )
+        _LOGGER.debug("Submitting reading %s for meter %s", value, meter_id)
+        resp = self._post_authenticated(
+            add_reading_url, submission.to_payload(), "Add reading"
+        )
+        data = resp.json()
+        code = data.get("Code")
+        if code != 0:
+            message = error_message(code)
+            _LOGGER.error(
+                "Orlen EBOK rejected reading %s for meter %s (code %s): %s",
+                value,
+                meter_id,
+                code,
+                message,
+            )
+            raise ReadingRejectedError(code, message)
+        result = ReadingResult.from_dict(data)
+        _LOGGER.info(
+            "Reading %s accepted for meter %s (cancellable: %s)",
+            result.value,
+            result.meter_id or meter_id,
+            result.can_be_cancelled,
+        )
+        return result
 
     def login(self, *, allow_interactive: bool = False) -> str:
         with self._login_lock:
