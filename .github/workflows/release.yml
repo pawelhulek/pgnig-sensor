@@ -16,6 +16,20 @@ jobs:
         id: version
         uses: home-assistant/actions/helpers/version@master
 
+      # HACS installs this repository from source, not from the release asset,
+      # so the committed manifest version is what users actually see. Fail the
+      # release rather than shipping a version that disagrees with the tag.
+      - name: "Check manifest version matches the tag"
+        run: |
+          MANIFEST_VERSION=$(python3 -c "import json;print(json.load(open('custom_components/pgnig_gas_sensor/manifest.json'))['version'])")
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::manifest.json says $MANIFEST_VERSION but the release tag is $TAG_VERSION."
+            echo "::error::Bump \"version\" in custom_components/pgnig_gas_sensor/manifest.json to $TAG_VERSION and re-run the release."
+            exit 1
+          fi
+          echo "manifest.json version $MANIFEST_VERSION matches tag $TAG_VERSION"
+
       - name: "Set manifest version number"
         run: |
           python3 ${{ github.workspace }}/.github/scripts/update_hacs_manifest.py --version ${{ steps.version.outputs.version }}
