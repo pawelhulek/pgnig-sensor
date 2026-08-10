@@ -204,6 +204,7 @@ class OrlenIDAuth(AuthMethod):
         username: str,
         password: str,
         session_data: dict[str, Any] | None = None,
+        mfa_enabled: bool = True,
     ) -> None:
         self.username = username
         self.password = password
@@ -211,6 +212,7 @@ class OrlenIDAuth(AuthMethod):
         self._session = requests.Session()
         self._session.headers.update(browser_headers)
         self._cached_token: str = ""
+        self._mfa_enabled = mfa_enabled
         if session_data:
             self._device_id = session_data.get("device_id", self._device_id)
             cookies = session_data.get("cookies", [])
@@ -324,6 +326,7 @@ class OrlenIDAuth(AuthMethod):
             "mfa_form_fields": fields,
             "mfa_field_name": mfa_field,
             "mfa_referer": response.url,
+            "mfa_enabled": self._mfa_enabled,
         }
 
     @classmethod
@@ -341,6 +344,7 @@ class OrlenIDAuth(AuthMethod):
         else:
             _restore_cookies(auth._session, cookies)
         auth._session.cookies.set("pgnig-ebok-device-token", auth._device_id)
+        auth._mfa_enabled = pending.get("mfa_enabled", True)
         return auth
 
     def complete_mfa(self, pending: dict[str, Any], code: str) -> str:
@@ -457,7 +461,7 @@ class OrlenIDAuth(AuthMethod):
         if restored:
             return restored
 
-        if not allow_interactive:
+        if not allow_interactive and self._mfa_enabled:
             raise SessionExpiredError(
                 "OrlenID session expired; re-authenticate in Home Assistant"
             )

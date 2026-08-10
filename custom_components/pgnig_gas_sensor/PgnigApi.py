@@ -31,6 +31,7 @@ class PgnigApi:
         password,
         auth_method=DEFAULT_AUTH_METHOD,
         session_data=None,
+        mfa_enabled=True,
     ) -> None:
         self.username = username
         self.password = password
@@ -39,10 +40,10 @@ class PgnigApi:
             raise ValueError(f"Unknown auth method: {auth_method}")
         self._auth_method = auth_method
         if auth_method == AUTH_METHOD_ORLEN_ID:
-            self._auth = auth_class(username, password, session_data=session_data)
+            self._auth = auth_class(username, password, session_data=session_data, mfa_enabled=mfa_enabled)
         else:
             self._auth = auth_class(username, password)
-        self._login_lock = threading.Lock()
+        self._login_lock = threading.RLock()
 
     def _api_headers(self, token):
         return {
@@ -57,18 +58,8 @@ class PgnigApi:
     def refresh_auth_token(self) -> str:
         """Refresh EBOK API token using the current HTTP session (no MFA)."""
         with self._login_lock:
-            if self._auth_method == AUTH_METHOD_ORLEN_ID and isinstance(
-                self._auth, OrlenIDAuth
-            ):
-                self.invalidate_token()
-                token = self._auth._try_restore_session_token()
-                if not token:
-                    raise SessionExpiredError(
-                        "OrlenID session expired; re-authenticate in Home Assistant"
-                    )
-                return token
             self.invalidate_token()
-            return self._auth.login()
+            return self.login(allow_interactive=False)
 
     def _get_authenticated(self, url: str, operation: str) -> requests.Response:
         last_response = None

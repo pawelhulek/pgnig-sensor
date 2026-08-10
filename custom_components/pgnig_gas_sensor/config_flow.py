@@ -16,6 +16,7 @@ from .const import (
     CONF_AUTH_METHOD,
     CONF_MFA_CODE,
     CONF_ORLEN_SESSION,
+    CONF_MFA_ENABLED,
     DEFAULT_AUTH_METHOD,
     DOMAIN,
 )
@@ -67,6 +68,7 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
             "username": username,
             "password": password,
             "auth_method": auth_method,
+            "mfa_enabled": False,
             "entry_id": entry_id,
         }
 
@@ -117,6 +119,7 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_USERNAME: self._login_context["username"],
                 CONF_PASSWORD: self._login_context["password"],
                 CONF_AUTH_METHOD: self._login_context["auth_method"],
+                CONF_MFA_ENABLED: self._login_context.get("mfa_enabled", False),
             }
         )
 
@@ -167,6 +170,7 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
                 entry_id=entry_id,
                 pending_mfa=exc.pending,
             )
+            self._login_context["mfa_enabled"] = True
             return await self.async_step_mfa()
 
         _LOGGER.exception("Orlen EBOK login failed during %s", mode)
@@ -260,6 +264,7 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_USERNAME: username,
                         CONF_PASSWORD: password,
                         CONF_AUTH_METHOD: auth_method,
+                        CONF_MFA_ENABLED: False,
                     }
                 )
                 return self.async_create_entry(
@@ -310,6 +315,7 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_USERNAME: username,
                         CONF_PASSWORD: password,
                         CONF_AUTH_METHOD: auth_method,
+                        CONF_MFA_ENABLED: False,
                     }
                 )
                 self.hass.config_entries.async_update_entry(
@@ -369,6 +375,7 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_USERNAME: username,
                         CONF_PASSWORD: password,
                         CONF_AUTH_METHOD: auth_method,
+                        CONF_MFA_ENABLED: False,
                     }
                 )
                 self.hass.config_entries.async_update_entry(

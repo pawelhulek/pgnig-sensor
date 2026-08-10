@@ -161,3 +161,58 @@ def test_invalidate_token_clears_cache(auth):
     auth._cached_token = "cached"
     auth.invalidate_token()
     assert auth._cached_token == ""
+
+
+def test_login_non_interactive_mfa_enabled_blocks(auth):
+    auth._mfa_enabled = True
+    with patch.object(auth, "_try_restore_session_token", return_value=None):
+        with pytest.raises(SessionExpiredError, match="re-authenticate"):
+            auth.login(allow_interactive=False)
+
+
+def test_login_non_interactive_mfa_disabled_proceeds(auth):
+    auth._mfa_enabled = False
+    with patch.object(auth, "_try_restore_session_token", return_value=None):
+        with patch.object(auth, "_init_session") as mock_init:
+            # It should proceed to initialize session and try to login
+            with pytest.raises(RuntimeError):  # It will fail later in the flow due to no mock setup
+                auth.login(allow_interactive=False)
+            mock_init.assert_called_once()
+
+
+def test_try_restore_session_token_silent_sso_success(auth):
+    auth._session.cookies.set("dummy", "val")
+    with patch.object(auth, "_fetch_auth_token", side_effect=[RuntimeError("Expired"), "fresh-token-sso"]):
+        with patch.object(auth, "_session") as mock_session:
+            mock_session.cookies.keys.return_value = ["dummy"]
+            
+            init_resp = _mock_resp({"RedirectUrl": "https://sso.redirect"}, status_code=200)
+            sso_resp = _mock_resp(status_code=200)
+            sso_resp.url = "https://ebok.myorlen.pl/home"
+            
+            mock_session.post.return_value = init_resp
+            mock_session.get.return_value = sso_resp
+            
+            token = auth._try_restore_session_token()
+            assert token == "fresh-token-sso"
+            assert mock_session.post.called
+            assert mock_session.get.called
+
+
+def test_try_restore_session_token_silent_sso_failure(auth):
+    auth._session.cookies.set("dummy", "val")
+    with patch.object(auth, "_fetch_auth_token", side_effect=RuntimeError("Expired")):
+        with patch.object(auth, "_session") as mock_session:
+            mock_session.cookies.keys.return_value = ["dummy"]
+            
+            init_resp = _mock_resp({"RedirectUrl": "https://sso.redirect"}, status_code=200)
+            sso_resp = _mock_resp(status_code=200)
+            sso_resp.url = "https://ebok.myorlen.pl/login"  # Not home, so failed
+            
+            mock_session.post.return_value = init_resp
+            mock_session.get.return_value = sso_resp
+            
+            token = auth._try_restore_session_token()
+            assert token is None
+            assert auth._cached_token == ""
+
