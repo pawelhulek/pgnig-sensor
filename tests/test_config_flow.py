@@ -7,8 +7,10 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pgnig_gas_sensor.const import (
+    AUTH_METHOD_ORLEN_ID,
     DOMAIN,
     CONF_AUTH_METHOD,
+    CONF_ORLEN_SESSION,
     DEFAULT_AUTH_METHOD,
 )
 from custom_components.pgnig_gas_sensor.config_flow import PGNIGGasConfigFlow
@@ -17,6 +19,55 @@ from custom_components.pgnig_gas_sensor.config_flow import PGNIGGasConfigFlow
 @pytest.fixture(autouse=True)
 def auto_enable(enable_custom_integrations):
     yield
+
+
+async def test_orlen_session_is_stored_when_it_is_a_mapping(hass: HomeAssistant):
+    flow = PGNIGGasConfigFlow()
+    flow._authenticated_api = MagicMock()
+    flow._authenticated_api.export_orlen_session.return_value = {
+        "device_id": "abc",
+        "cookies": [],
+    }
+
+    data = flow._with_orlen_session({CONF_USERNAME: "u"})
+
+    assert data[CONF_ORLEN_SESSION] == {"device_id": "abc", "cookies": []}
+
+
+@pytest.mark.parametrize("session", [None, {}, MagicMock(), "not-a-dict", 42])
+async def test_non_mapping_orlen_session_is_never_stored(hass: HomeAssistant, session):
+    """Entry data goes to .storage as JSON — a non-mapping would break the write."""
+    flow = PGNIGGasConfigFlow()
+    flow._authenticated_api = MagicMock()
+    flow._authenticated_api.export_orlen_session.return_value = session
+
+    data = flow._with_orlen_session({CONF_USERNAME: "u"})
+
+    assert CONF_ORLEN_SESSION not in data
+    assert data == {CONF_USERNAME: "u"}
+
+
+async def test_created_entry_data_is_json_serializable(hass: HomeAssistant):
+    """Regression: a mocked/opaque session must not end up in the config entry."""
+    import json
+
+    with patch("custom_components.pgnig_gas_sensor.config_flow.PgnigApi") as MockApi:
+        MockApi.return_value = MagicMock()
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_AUTH_METHOD: AUTH_METHOD_ORLEN_ID,
+                CONF_USERNAME: "test@user.pl",
+                CONF_PASSWORD: "testpass",
+            },
+        )
+
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        json.dumps(result["data"])
 
 
 async def test_form_start(hass: HomeAssistant):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any, Optional
 
 import homeassistant.helpers.config_validation as cv
@@ -95,19 +96,29 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         self._authenticated_api = api
 
+    def _with_orlen_session(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Add the OrlenID session to entry data when there is one to store.
+
+        Config entry data is written to .storage as JSON, so anything that is
+        not a plain mapping is dropped rather than breaking the entry write.
+        """
+        if not self._authenticated_api:
+            return data
+        session = self._authenticated_api.export_orlen_session()
+        if not isinstance(session, Mapping) or not session:
+            return data
+        return {**data, CONF_ORLEN_SESSION: dict(session)}
+
     def _entry_data(self) -> dict[str, Any]:
         if not self._login_context:
             raise RuntimeError("Login context missing from config flow")
-        data: dict[str, Any] = {
-            CONF_USERNAME: self._login_context["username"],
-            CONF_PASSWORD: self._login_context["password"],
-            CONF_AUTH_METHOD: self._login_context["auth_method"],
-        }
-        if self._authenticated_api:
-            session = self._authenticated_api.export_orlen_session()
-            if session:
-                data[CONF_ORLEN_SESSION] = session
-        return data
+        return self._with_orlen_session(
+            {
+                CONF_USERNAME: self._login_context["username"],
+                CONF_PASSWORD: self._login_context["password"],
+                CONF_AUTH_METHOD: self._login_context["auth_method"],
+            }
+        )
 
     async def _finalize_success(self):
         if not self._login_context:
@@ -244,15 +255,13 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
             password = user_input[CONF_PASSWORD]
             try:
                 await self._perform_login(username, password, auth_method)
-                data = {
-                    CONF_USERNAME: username,
-                    CONF_PASSWORD: password,
-                    CONF_AUTH_METHOD: auth_method,
-                }
-                if self._authenticated_api:
-                    session = self._authenticated_api.export_orlen_session()
-                    if session:
-                        data[CONF_ORLEN_SESSION] = session
+                data = self._with_orlen_session(
+                    {
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_AUTH_METHOD: auth_method,
+                    }
+                )
                 return self.async_create_entry(
                     title="Pgnig sensor",
                     data=data,
@@ -295,16 +304,14 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
             password = user_input[CONF_PASSWORD]
             try:
                 await self._perform_login(username, password, auth_method)
-                data = {
-                    **config_entry.data,
-                    CONF_USERNAME: username,
-                    CONF_PASSWORD: password,
-                    CONF_AUTH_METHOD: auth_method,
-                }
-                if self._authenticated_api:
-                    session = self._authenticated_api.export_orlen_session()
-                    if session:
-                        data[CONF_ORLEN_SESSION] = session
+                data = self._with_orlen_session(
+                    {
+                        **config_entry.data,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_AUTH_METHOD: auth_method,
+                    }
+                )
                 self.hass.config_entries.async_update_entry(
                     config_entry,
                     data=data,
@@ -357,15 +364,13 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
             password = user_input[CONF_PASSWORD]
             try:
                 await self._perform_login(username, password, auth_method)
-                data = {
-                    CONF_USERNAME: username,
-                    CONF_PASSWORD: password,
-                    CONF_AUTH_METHOD: auth_method,
-                }
-                if self._authenticated_api:
-                    session = self._authenticated_api.export_orlen_session()
-                    if session:
-                        data[CONF_ORLEN_SESSION] = session
+                data = self._with_orlen_session(
+                    {
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_AUTH_METHOD: auth_method,
+                    }
+                )
                 self.hass.config_entries.async_update_entry(
                     config_entry,
                     data=data,
