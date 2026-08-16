@@ -19,6 +19,7 @@ from custom_components.pgnig_gas_sensor.const import (
     CONF_AUTH_METHOD,
     CONF_MFA_CODE,
     CONF_ORLEN_SESSION,
+    CONF_MFA_ENABLED,
     DOMAIN,
 )
 
@@ -150,6 +151,7 @@ async def test_config_flow_mfa_step_after_mfa_required(hass):
 
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_ORLEN_SESSION]["token"] == "token-xyz"
+    assert result["data"][CONF_MFA_ENABLED] is True
     mock_api.complete_mfa.assert_called_once_with(pending, "123456")
 
 

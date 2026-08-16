@@ -12,6 +12,7 @@ from custom_components.pgnig_gas_sensor.const import (
     CONF_AUTH_METHOD,
     CONF_ORLEN_SESSION,
     DEFAULT_AUTH_METHOD,
+    CONF_MFA_ENABLED,
 )
 from custom_components.pgnig_gas_sensor.config_flow import PGNIGGasConfigFlow
 
@@ -103,6 +104,7 @@ async def test_form_creates_entry_on_success(hass: HomeAssistant):
         assert result["data"][CONF_USERNAME] == "test@user.pl"
         assert result["data"][CONF_PASSWORD] == "testpass"
         assert result["data"][CONF_AUTH_METHOD] == DEFAULT_AUTH_METHOD
+        assert result["data"][CONF_MFA_ENABLED] is False
         mock_api.login.assert_called_once()
 
 
@@ -168,6 +170,7 @@ async def test_reauth_updates_entry(hass: HomeAssistant):
         assert result["reason"] == "reauth_successful"
         assert entry.data[CONF_USERNAME] == "new@user.pl"
         assert entry.data[CONF_PASSWORD] == "newpass"
+        assert entry.data[CONF_MFA_ENABLED] is False
 
 
 async def test_reauth_shows_error_on_failure(hass: HomeAssistant):
@@ -247,6 +250,7 @@ async def test_reconfigure_updates_entry(hass: HomeAssistant):
         assert result["reason"] == "reconfigure_successful"
         assert entry.data[CONF_USERNAME] == "updated@user.pl"
         assert entry.data[CONF_PASSWORD] == "updatedpass"
+        assert entry.data[CONF_MFA_ENABLED] is False
 
 
 async def test_reconfigure_shows_error_on_failure(hass: HomeAssistant):

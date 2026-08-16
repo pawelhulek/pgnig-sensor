@@ -18,6 +18,7 @@ from .const import (
     AUTH_METHOD_ORLEN_ID,
     CONF_AUTH_METHOD,
     CONF_ORLEN_SESSION,
+    CONF_MFA_ENABLED,
     DEFAULT_AUTH_METHOD,
     DOMAIN,
     ORLEN_SESSION_REFRESH_MINUTES,
@@ -48,8 +49,9 @@ async def async_setup_entry(hass, config_entry):
     user = config_entry.data[CONF_USERNAME]
     password = config_entry.data[CONF_PASSWORD]
     auth_method = config_entry.data.get(CONF_AUTH_METHOD, DEFAULT_AUTH_METHOD)
+    mfa_enabled = config_entry.data.get(CONF_MFA_ENABLED, True)
     session_data = config_entry.data.get(CONF_ORLEN_SESSION)
-    api = PgnigApi(user, password, auth_method, session_data=session_data)
+    api = PgnigApi(user, password, auth_method, session_data=session_data, mfa_enabled=mfa_enabled)
     hass.data[DOMAIN][config_entry.entry_id] = api
 
     await hass.config_entries.async_forward_entry_setups(config_entry, ["sensor", "button"])
