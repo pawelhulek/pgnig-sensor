@@ -2,3 +2,54 @@ refresh:
   name: Refresh
   description: Force refresh all sensor data for this integration.
   fields: {}
+
+add_reading:
+  name: Add meter reading
+  description: >-
+    Send a gas meter reading to Orlen EBOK, the same way the "podaj odczyt" form
+    on the website does.
+  fields:
+    meter_id:
+      name: Meter ID
+      description: >-
+        Meter number the reading belongs to - the ID shown in the device name
+        ("Orlen GAS METER ID ...").
+      required: true
+      example: "12345678"
+      selector:
+        text:
+    value:
+      name: Reading
+      description: Meter state in cubic meters, as shown on the meter (whole units).
+      required: true
+      example: 1234
+      selector:
+        number:
+          min: 0
+          max: 9999999
+          step: 1
+          mode: box
+    date:
+      name: Reading date
+      description: Date the meter was read. Defaults to today.
+      required: false
+      selector:
+        date:
+    consent_meter_reset:
+      name: Confirm meter reset
+      description: >-
+        Confirm that the meter was replaced or rolled over. Only needed when
+        Orlen rejects the reading because it is lower than the previous one.
+      required: false
+      default: false
+      selector:
+        boolean:
+    config_entry_id:
+      name: Config entry
+      description: >-
+        Which Orlen account to use. Only needed when more than one account is
+        configured.
+      required: false
+      selector:
+        config_entry:
+          integration: pgnig_gas_sensor
