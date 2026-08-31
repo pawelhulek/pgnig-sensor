@@ -93,7 +93,7 @@ class PgnigSensor(SensorEntity):
             "name": f"Orlen GAS METER ID {self.meter_id}",
             "manufacturer": "Orlen",
             "model": self.meter_id,
-            "via_device": None,
+            "via_device_id": None,
         }
 
     @property
@@ -150,7 +150,7 @@ class PgnigInvoiceSensor(SensorEntity):
             "name": f"Orlen GAS METER ID {self.meter_id}",
             "manufacturer": "Orlen",
             "model": self.meter_id,
-            "via_device": None,
+            "via_device_id": None,
         }
 
     @property
@@ -226,7 +226,7 @@ class PgnigCostTrackingSensor(SensorEntity):
             "name": f"Orlen GAS METER ID {self.meter_id}",
             "manufacturer": "Orlen",
             "model": self.meter_id,
-            "via_device": None,
+            "via_device_id": None,
         }
 
     @property
