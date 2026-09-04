@@ -1,4 +1,5 @@
 """Tests for PgnigApi class with mocked auth and HTTP."""
+import importlib
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -196,3 +197,84 @@ def test_reading_for_meter_raises_after_repeated_401(api, mock_auth):
 
     assert mock_auth.login.call_count == 2
     mock_auth.invalidate_token.assert_called_once()
+
+
+def _reading_payload():
+    return {
+        "MeterReadings": [{
+            "Status": "OK", "ReadingDateLocal": "2026-09-01T12:00:00",
+            "ReadingDateUtc": "2026-09-01T10:00:00", "PpId": "1",
+            "Value": 417, "Value2": None, "Value3": None,
+            "MeterNumber": "METER1", "RegionCode": "PL", "Wear": 33,
+            "Type": "Odczyt", "Color": "red",
+        }],
+        "Code": 0, "Message": None, "DisplayToEndUser": False,
+        "EndUserMessage": None,
+        "TokenExpireDate": "2026-06-01T00:00:00",
+        "TokenExpireDateUtc": "2026-06-01T00:00:00",
+    }
+
+
+def _dispatch_by_url(mock_auth):
+    """Serve a payload the parser for that endpoint can actually read."""
+    meter_list_payload = mock_auth.session.get.return_value.json.return_value
+
+    def _get(url, **kwargs):
+        resp = MagicMock()
+        resp.ok = True
+        resp.status_code = 200
+        resp.json.return_value = (
+            _reading_payload() if "readings-for-meter" in url else meter_list_payload
+        )
+        return resp
+
+    mock_auth.session.get.side_effect = _get
+
+
+def test_repeated_call_reuses_one_request(api, mock_auth):
+    """Two sensors asking for the same endpoint must not cost two round trips.
+
+    PgnigInvoiceSensor and PgnigCostTrackingSensor both call invoices() on every
+    refresh, which was two identical requests to EBOK per cycle.
+    """
+    mock_auth.session.get.reset_mock()
+
+    api.meterList()
+    api.meterList()
+
+    assert mock_auth.session.get.call_count == 1
+
+
+def test_cache_is_per_url(api, mock_auth):
+    """Readings for a meter must not be served from the meter-list entry."""
+    _dispatch_by_url(mock_auth)
+    mock_auth.session.get.reset_mock()
+
+    api.meterList()
+    api.readingForMeter("METER1")
+
+    assert mock_auth.session.get.call_count == 2
+
+
+def test_clear_response_cache_forces_refetch(api, mock_auth):
+    mock_auth.session.get.reset_mock()
+
+    api.meterList()
+    api.clear_response_cache()
+    api.meterList()
+
+    assert mock_auth.session.get.call_count == 2
+
+
+def test_cache_expires(api, mock_auth, monkeypatch):
+    """The window is seconds; it must never serve data across refreshes."""
+    # The module and the class share a name, so the dotted-path form of
+    # monkeypatch.setattr resolves to the class. Import the module explicitly.
+    module = importlib.import_module("custom_components.pgnig_gas_sensor.PgnigApi")
+    monkeypatch.setattr(module, "RESPONSE_CACHE_TTL_SECONDS", 0)
+    mock_auth.session.get.reset_mock()
+
+    api.meterList()
+    api.meterList()
+
+    assert mock_auth.session.get.call_count == 2

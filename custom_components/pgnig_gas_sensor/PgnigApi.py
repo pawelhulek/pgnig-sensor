@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 
 import requests
 
@@ -23,6 +24,13 @@ invoices_url = (
     "?pageNumber=1&pageSize=12&api-version=3.0"
 )
 
+# Sensors update independently, so several of them ask for the same endpoint
+# within the same refresh. PgnigInvoiceSensor and PgnigCostTrackingSensor both
+# call invoices(), which is two identical round trips to EBOK every cycle.
+# Holding a response for a few seconds collapses those into one without ever
+# serving data across refreshes: SCAN_INTERVAL is hours, this window is seconds.
+RESPONSE_CACHE_TTL_SECONDS = 30
+
 
 class PgnigApi:
     def __init__(
@@ -44,6 +52,8 @@ class PgnigApi:
         else:
             self._auth = auth_class(username, password)
         self._login_lock = threading.RLock()
+        self._cache_lock = threading.RLock()
+        self._response_cache: dict[str, tuple[float, object]] = {}
 
     def _api_headers(self, token):
         return {
@@ -54,6 +64,26 @@ class PgnigApi:
 
     def invalidate_token(self) -> None:
         self._auth.invalidate_token()
+
+    def clear_response_cache(self) -> None:
+        """Drop cached responses so the next call goes to EBOK."""
+        with self._cache_lock:
+            self._response_cache.clear()
+
+    def _cached(self, url: str, operation: str, parse):
+        """Return a parsed response, reusing a very recent identical request."""
+        now = time.monotonic()
+        with self._cache_lock:
+            entry = self._response_cache.get(url)
+            if entry is not None and now - entry[0] < RESPONSE_CACHE_TTL_SECONDS:
+                _LOGGER.debug("%s served from short-lived cache", operation)
+                return entry[1]
+
+        parsed = parse(self._get_authenticated(url, operation).json())
+
+        with self._cache_lock:
+            self._response_cache[url] = (time.monotonic(), parsed)
+        return parsed
 
     def refresh_auth_token(self) -> str:
         """Refresh EBOK API token using the current HTTP session (no MFA)."""
@@ -91,16 +121,15 @@ class PgnigApi:
         raise RuntimeError(f"{operation} failed with status {status}: {body}")
 
     def meterList(self) -> PpgList:
-        resp = self._get_authenticated(devices_list_url, "Meter list")
-        return ppg_list_from_dict(resp.json())
+        return self._cached(devices_list_url, "Meter list", ppg_list_from_dict)
 
     def readingForMeter(self, meter_id) -> PpgReadingForMeter:
-        resp = self._get_authenticated(readings_url + meter_id, "Reading")
-        return ppg_reading_for_meter_from_dict(resp.json())
+        return self._cached(
+            readings_url + meter_id, "Reading", ppg_reading_for_meter_from_dict
+        )
 
     def invoices(self) -> Invoices:
-        resp = self._get_authenticated(invoices_url, "Invoices")
-        return invoices_from_dict(resp.json())
+        return self._cached(invoices_url, "Invoices", invoices_from_dict)
 
     def login(self, *, allow_interactive: bool = False) -> str:
         with self._login_lock:
