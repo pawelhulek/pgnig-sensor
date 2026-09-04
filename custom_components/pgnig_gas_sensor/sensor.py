@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import string
-from datetime import timedelta
+from datetime import UTC, timedelta
 from typing import Callable, Optional
 
 import homeassistant.helpers.config_validation as cv
@@ -187,8 +187,10 @@ async def async_setup_entry(
         meter_id = x.meter_number
         async_add_entities(
             [PgnigSensor(hass, api, meter_id, x.id_local),
+             PgnigReadingDateSensor(hass, api, meter_id, x.id_local),
              PgnigInvoiceSensor(hass, api, meter_id, x.id_local),
-             PgnigCostTrackingSensor(hass, api, meter_id, x.id_local)],
+             PgnigCostTrackingSensor(hass, api, meter_id, x.id_local),
+             PgnigMarginalPriceSensor(hass, api, meter_id, x.id_local)],
             update_before_add=True)
 
 
@@ -208,8 +210,10 @@ async def async_setup_platform(
     for x in pgps.ppg_list:
         async_add_entities(
             [PgnigSensor(hass, api, x.meter_number, x.id_local),
+             PgnigReadingDateSensor(hass, api, x.meter_number, x.id_local),
              PgnigInvoiceSensor(hass, api, x.meter_number, x.id_local),
-             PgnigCostTrackingSensor(hass, api, x.meter_number, x.id_local)],
+             PgnigCostTrackingSensor(hass, api, x.meter_number, x.id_local),
+             PgnigMarginalPriceSensor(hass, api, x.meter_number, x.id_local)],
             update_before_add=True)
 
 
@@ -440,3 +444,157 @@ class PgnigCostTrackingSensor(SensorEntity):
     def latest_price(self):
         valid_invoices = self.valid_invoices()
         return max(valid_invoices, key=lambda z: z.date) if valid_invoices else None
+
+
+class PgnigReadingDateSensor(SensorEntity):
+    """When the meter reading was taken, as opposed to when it was fetched.
+
+    EBOK publishes a reading days after the meter records it. Attributes on the
+    meter sensor carry the date, but an attribute cannot be graphed, alerted on,
+    or shown as "5 days ago" in the UI. As a timestamp entity it can.
+    """
+
+    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
+        self._attr_device_class = SensorDeviceClass.TIMESTAMP
+        self._state: MeterReading | None = None
+        self.hass = hass
+        self.api = api
+        self.meter_id = meter_id
+        self.id_local = id_local
+        self.entity_name = "Orlen Gas Reading Date " + meter_id + " " + str(id_local)
+
+    @property
+    def unique_id(self) -> str | None:
+        return "pgnig_reading_date" + self.meter_id + "_" + str(self.id_local)
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {("pgnig_gas_sensor", self.meter_id)},
+            "name": f"Orlen GAS METER ID {self.meter_id}",
+            "manufacturer": "Orlen",
+            "model": self.meter_id,
+        }
+
+    @property
+    def name(self) -> str:
+        return self.entity_name
+
+    @property
+    def state(self):
+        if self._state is None:
+            return None
+        value = self._state.reading_date_utc
+        if value is None:
+            return None
+        # EBOK serves ReadingDateUtc without a timezone suffix, so dateutil
+        # parses it naive. Home Assistant requires an aware datetime here.
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    @property
+    def extra_state_attributes(self):
+        if self._state is None:
+            return {}
+        return {
+            "reading_type": self._state.type,
+            "reading_status": self._state.status,
+            "value": self._state.value,
+        }
+
+    async def async_update(self):
+        self._state = await self.hass.async_add_executor_job(self.latest_reading)
+
+    def latest_reading(self):
+        readings = self.api.readingForMeter(self.meter_id).meter_readings
+        if not readings:
+            return None
+        return max(readings, key=lambda z: z.reading_date_utc)
+
+
+class PgnigMarginalPriceSensor(SensorEntity):
+    """Gas price per m3 with the standing charges taken out.
+
+    PgnigCostTrackingSensor reports gross_amount / volume, which includes the
+    subscription and fixed distribution fee and therefore rises as consumption
+    falls. This entity reports the fitted rate instead, which is what the Energy
+    dashboard needs as a price.
+    """
+
+    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
+        self._attr_native_unit_of_measurement = "PLN/m³"
+        self._attr_device_class = SensorDeviceClass.MONETARY
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._fit: tuple[float, float, int, str, float | None] | None = None
+        self._latest: InvoicesList | None = None
+        self.hass = hass
+        self.api = api
+        self.meter_id = meter_id
+        self.id_local = id_local
+        self.entity_name = "Orlen Gas Marginal Price " + meter_id + " " + str(id_local)
+
+    @property
+    def unique_id(self) -> str | None:
+        return "pgnig_marginal_price" + self.meter_id + "_" + str(self.id_local)
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {("pgnig_gas_sensor", self.meter_id)},
+            "name": f"Orlen GAS METER ID {self.meter_id}",
+            "manufacturer": "Orlen",
+            "model": self.meter_id,
+        }
+
+    @property
+    def name(self) -> str:
+        return self.entity_name
+
+    @property
+    def state(self):
+        if self._fit is None:
+            return None
+        return round(self._fit[0], 4)
+
+    @property
+    def extra_state_attributes(self):
+        if self._fit is None:
+            return {}
+        _, standing, used, model, residual = self._fit
+        attrs = {
+            "invoices_used": used,
+            "model": model,
+        }
+        if residual is not None:
+            attrs["residual_pct"] = round(residual, 2)
+        if model == "per_day":
+            attrs["fixed_charge_per_day"] = round(standing, 4)
+            days = _billing_days(self._latest) if self._latest is not None else None
+            if days:
+                attrs["fixed_charge_per_invoice"] = round(standing * days, 2)
+        else:
+            attrs["fixed_charge_per_invoice"] = round(standing, 2)
+        return attrs
+
+    async def async_update(self):
+        invoices = await self.hass.async_add_executor_job(self.valid_invoices)
+        self._latest = max(invoices, key=lambda z: z.date) if invoices else None
+        self._fit = _fit_marginal_price(invoices)
+
+    def valid_invoices(self) -> list[InvoicesList]:
+        id_local = self.id_local
+        invoices = self.api.invoices().invoices_list
+
+        def has_valid_consumption(x: InvoicesList) -> bool:
+            gas_m3 = x.wear_m3 or x.wear
+            return (
+                str(id_local) == str(x.id_pp)
+                and gas_m3 is not None
+                and gas_m3 != 0
+                and x.gross_amount is not None
+                and x.gross_amount != 0
+                and not x.is_credit_note
+            )
+
+        return list(filter(has_valid_consumption, invoices))

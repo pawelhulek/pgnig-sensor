@@ -1,5 +1,5 @@
 """Additional sensor tests covering edge cases."""
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -443,3 +443,83 @@ def test_residual_grows_when_the_model_does_not_describe_the_bills():
     ]
     *_, residual = _fit_marginal_price(invoices)
     assert residual > 5
+
+
+@pytest.mark.asyncio
+async def test_reading_date_sensor_reports_aware_timestamp(hass: HomeAssistant):
+    """An attribute cannot be graphed or alerted on; a timestamp entity can."""
+    from custom_components.pgnig_gas_sensor.sensor import PgnigReadingDateSensor
+
+    api = MagicMock()
+    api.readingForMeter.return_value = _make_readings([
+        _reading(reading_date_utc=datetime(2026, 8, 31), value=417, type="Real"),
+    ])
+    sensor = PgnigReadingDateSensor(hass, api, "M1", 1)
+    await sensor.async_update()
+
+    assert sensor.state == datetime(2026, 8, 31, tzinfo=UTC)
+    assert sensor.extra_state_attributes["reading_type"] == "Real"
+    assert sensor.extra_state_attributes["value"] == 417
+
+
+@pytest.mark.asyncio
+async def test_reading_date_sensor_without_readings(hass: HomeAssistant):
+    from custom_components.pgnig_gas_sensor.sensor import PgnigReadingDateSensor
+
+    api = MagicMock()
+    api.readingForMeter.return_value = _make_readings([])
+    sensor = PgnigReadingDateSensor(hass, api, "M1", 1)
+    await sensor.async_update()
+
+    assert sensor.state is None
+    assert sensor.extra_state_attributes == {}
+
+
+@pytest.mark.asyncio
+async def test_marginal_price_sensor_reports_the_fitted_rate(hass: HomeAssistant):
+    """The Energy dashboard needs a rate, not an average carrying fixed fees."""
+    from custom_components.pgnig_gas_sensor.sensor import PgnigMarginalPriceSensor
+
+    api = MagicMock()
+    api.invoices.return_value = _make_invoices([
+        _invoice_with(33, 2 * 30 + 3 * 33, day=1, days=30),
+        _invoice_with(300, 2 * 60 + 3 * 300, day=2, days=60),
+    ])
+    sensor = PgnigMarginalPriceSensor(hass, api, "M1", 1)
+    await sensor.async_update()
+
+    assert sensor.state == pytest.approx(3.0)
+    attrs = sensor.extra_state_attributes
+    assert attrs["model"] == "per_day"
+    assert attrs["fixed_charge_per_day"] == pytest.approx(2.0)
+    assert attrs["fixed_charge_per_invoice"] == pytest.approx(120.0)
+    assert attrs["residual_pct"] == pytest.approx(0.0, abs=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_marginal_price_sensor_is_none_when_undetermined(hass: HomeAssistant):
+    """One invoice cannot separate the rate from the standing charge."""
+    from custom_components.pgnig_gas_sensor.sensor import PgnigMarginalPriceSensor
+
+    api = MagicMock()
+    api.invoices.return_value = _make_invoices([_invoice_with(33, 139)])
+    sensor = PgnigMarginalPriceSensor(hass, api, "M1", 1)
+    await sensor.async_update()
+
+    assert sensor.state is None
+    assert sensor.extra_state_attributes == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sensor_name",
+    ["PgnigReadingDateSensor", "PgnigMarginalPriceSensor"],
+)
+async def test_new_sensors_join_the_existing_device(hass: HomeAssistant, sensor_name):
+    """Both must land on the meter device, not create their own."""
+    import custom_components.pgnig_gas_sensor.sensor as module
+
+    sensor = getattr(module, sensor_name)(hass, MagicMock(), "M-123", 5)
+    info = sensor.device_info
+    assert info["identifiers"] == {("pgnig_gas_sensor", "M-123")}
+    assert "via_device" not in info
