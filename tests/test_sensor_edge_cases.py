@@ -230,6 +230,25 @@ async def test_cost_sensor_device_info(hass: HomeAssistant):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sensor_class",
+    [PgnigSensor, PgnigInvoiceSensor, PgnigCostTrackingSensor],
+)
+async def test_device_info_has_no_deprecated_via_device(hass: HomeAssistant, sensor_class):
+    """device_info must not carry via_device.
+
+    Home Assistant deprecated the via_device parameter of
+    device_registry.async_get_or_create in favour of via_device_id. For a custom
+    integration the deprecation report raises instead of logging, and that
+    exception escapes entity_platform._async_add_entity, so every sensor fails to
+    register with \"Error adding entity None\" and only the button survives.
+    """
+    api = MagicMock()
+    sensor = sensor_class(hass, api, "M-123", 5)
+    assert "via_device" not in sensor.device_info
+
+
+@pytest.mark.asyncio
 async def test_invoice_sensor_attributes_none_when_no_invoice(hass: HomeAssistant):
     api = MagicMock()
     api.invoices.return_value = _make_invoices([])
