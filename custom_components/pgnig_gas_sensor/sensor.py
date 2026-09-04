@@ -21,6 +21,13 @@ from .PpgReadingForMeter import MeterReading
 from .const import DEFAULT_AUTH_METHOD, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+# Tariffs change. Fitting across every invoice the endpoint returns averages
+# old and new prices into a rate that matches neither, so the fit uses only the
+# most recent invoices. Six covers roughly a year of two-month periods -- enough
+# points to be stable, recent enough to describe the tariff in force now.
+MARGINAL_PRICE_INVOICE_WINDOW = 6
+
+
 def _billing_days(invoice: "InvoicesList") -> int | None:
     """Length of the billing period in days, or None if the dates are unusable."""
     start = getattr(invoice, "start_date", None)
@@ -33,7 +40,7 @@ def _billing_days(invoice: "InvoicesList") -> int | None:
 
 def _fit_marginal_price(
     invoices: list["InvoicesList"],
-) -> tuple[float, float, int, str] | None:
+) -> tuple[float, float, int, str, float | None] | None:
     """Split invoices into a per-m3 rate and the standing charges.
 
     The sensor state is gross_amount / volume, which folds the standing charges
@@ -59,10 +66,16 @@ def _fit_marginal_price(
     PLN/day for the "per_day" model and PLN/invoice for "per_invoice".
     Returns None when the data cannot determine the split.
     """
+    usable = [
+        x for x in invoices
+        if (x.wear_m3 or x.wear) and x.gross_amount is not None
+    ]
+    usable.sort(key=lambda x: x.date, reverse=True)
+    usable = usable[:MARGINAL_PRICE_INVOICE_WINDOW]
+
     dated = [
         (_billing_days(x), x.wear_m3 or x.wear, x.gross_amount)
-        for x in invoices
-        if (x.wear_m3 or x.wear) and x.gross_amount is not None
+        for x in usable
     ]
     with_days = [(d, v, y) for d, v, y in dated if d is not None]
 
@@ -70,14 +83,39 @@ def _fit_marginal_price(
         fit = _solve_two_term(with_days)
         if fit is not None:
             per_day, marginal = fit
-            return marginal, per_day, len(with_days), "per_day"
+            return (
+                marginal, per_day, len(with_days), "per_day",
+                _mean_residual_pct(with_days, per_day, marginal),
+            )
 
     points = [(v, y) for _, v, y in dated]
     fit = _solve_with_intercept(points)
     if fit is None:
         return None
     fixed, marginal = fit
-    return marginal, fixed, len(points), "per_invoice"
+    rows = [(1.0, v, y) for v, y in points]
+    return (
+        marginal, fixed, len(points), "per_invoice",
+        _mean_residual_pct(rows, fixed, marginal),
+    )
+
+
+def _mean_residual_pct(
+    rows: list[tuple[float, float, float]], per_day: float, marginal: float
+) -> float | None:
+    """Mean absolute error of the fit, as a percent of the mean invoice.
+
+    Exposed so the fit does not have to be taken on trust: a few percent means
+    the model describes the bills, a large figure means something the model does
+    not capture -- a tariff change inside the window, a correction, a discount.
+    """
+    if not rows:
+        return None
+    total = sum(y for _, _, y in rows)
+    if total == 0:
+        return None
+    error = sum(abs(per_day * d + marginal * v - y) for d, v, y in rows)
+    return error / total * 100
 
 
 def _solve_two_term(rows: list[tuple[float, float, float]]) -> tuple[float, float] | None:
@@ -359,10 +397,12 @@ class PgnigCostTrackingSensor(SensorEntity):
             attrs["last_invoice_number"] = self._state.number
         fit = _fit_marginal_price(self._invoices)
         if fit is not None:
-            marginal, standing, used, model = fit
+            marginal, standing, used, model, residual = fit
             attrs["marginal_price"] = round(marginal, 4)
             attrs["marginal_price_invoices_used"] = used
             attrs["marginal_price_model"] = model
+            if residual is not None:
+                attrs["marginal_price_residual_pct"] = round(residual, 2)
             if model == "per_day":
                 attrs["fixed_charge_per_day"] = round(standing, 4)
                 days = _billing_days(self._state) if self._state is not None else None

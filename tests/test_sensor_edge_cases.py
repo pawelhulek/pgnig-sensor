@@ -15,6 +15,7 @@ from custom_components.pgnig_gas_sensor.sensor import (
     PgnigCostTrackingSensor,
     _fit_marginal_price,
     _billing_days,
+    MARGINAL_PRICE_INVOICE_WINDOW,
 )
 from custom_components.pgnig_gas_sensor.Invoices import Invoices, InvoicesList
 
@@ -153,7 +154,7 @@ def test_marginal_price_separates_fixed_from_variable():
     """amount = fixed + marginal * volume, recovered exactly from clean points."""
     # 40 PLN standing charge, 3 PLN per m3.
     invoices = [_invoice_with(33, 40 + 3 * 33), _invoice_with(300, 40 + 3 * 300)]
-    marginal, fixed, used, model = _fit_marginal_price(invoices)
+    marginal, fixed, used, model, _ = _fit_marginal_price(invoices)
     assert model == "per_invoice"
     assert marginal == pytest.approx(3.0)
     assert fixed == pytest.approx(40.0)
@@ -188,7 +189,7 @@ def test_fit_uses_days_when_dates_are_present():
         _invoice_with(33, 2 * 30 + 3 * 33, days=30),
         _invoice_with(300, 2 * 60 + 3 * 300, days=60),
     ]
-    marginal, per_day, used, model = _fit_marginal_price(invoices)
+    marginal, per_day, used, model, _ = _fit_marginal_price(invoices)
     assert model == "per_day"
     assert marginal == pytest.approx(3.0)
     assert per_day == pytest.approx(2.0)
@@ -198,7 +199,7 @@ def test_fit_uses_days_when_dates_are_present():
 def test_fit_falls_back_when_dates_are_missing():
     """Without usable dates the old per-invoice split still applies."""
     invoices = [_invoice_with(33, 40 + 3 * 33), _invoice_with(300, 40 + 3 * 300)]
-    marginal, fixed, used, model = _fit_marginal_price(invoices)
+    marginal, fixed, used, model, _ = _fit_marginal_price(invoices)
     assert model == "per_invoice"
     assert marginal == pytest.approx(3.0)
     assert fixed == pytest.approx(40.0)
@@ -214,7 +215,7 @@ def test_equal_periods_still_recover_the_rate():
         _invoice_with(33, 40 + 3 * 33, days=30),
         _invoice_with(300, 40 + 3 * 300, days=30),
     ]
-    marginal, per_day, _, model = _fit_marginal_price(invoices)
+    marginal, per_day, _, model, _ = _fit_marginal_price(invoices)
     assert model == "per_day"
     assert marginal == pytest.approx(3.0)
     assert per_day * 30 == pytest.approx(40.0)
@@ -403,3 +404,42 @@ async def test_cost_sensor_attributes_none_when_no_data(hass: HomeAssistant):
     sensor = PgnigCostTrackingSensor(hass, api, "M1", 1)
     await sensor.async_update()
     assert sensor.extra_state_attributes == {}
+
+
+def test_fit_uses_only_the_most_recent_invoices():
+    """A tariff change must not be averaged into the current rate.
+
+    Old invoices at 6 PLN/m3, recent ones at 3. Fitting everything would land
+    between the two and describe neither.
+    """
+    old = [
+        _invoice_with(100 + i, 2 * 30 + 6 * (100 + i), day=1 + i, days=30)
+        for i in range(6)
+    ]
+    recent = [
+        _invoice_with(30 + 40 * i, 2 * 30 + 3 * (30 + 40 * i), day=20 + i, days=30)
+        for i in range(MARGINAL_PRICE_INVOICE_WINDOW)
+    ]
+    marginal, _, used, _, _ = _fit_marginal_price(old + recent)
+    assert used == MARGINAL_PRICE_INVOICE_WINDOW
+    assert marginal == pytest.approx(3.0)
+
+
+def test_residual_is_reported_and_small_for_a_clean_fit():
+    invoices = [
+        _invoice_with(33, 2 * 30 + 3 * 33, day=1, days=30),
+        _invoice_with(300, 2 * 60 + 3 * 300, day=2, days=60),
+    ]
+    *_, residual = _fit_marginal_price(invoices)
+    assert residual == pytest.approx(0.0, abs=1e-6)
+
+
+def test_residual_grows_when_the_model_does_not_describe_the_bills():
+    """A tariff change inside the window shows up as a large residual."""
+    invoices = [
+        _invoice_with(100, 2 * 30 + 6 * 100, day=1, days=30),
+        _invoice_with(110, 2 * 30 + 3 * 110, day=2, days=30),
+        _invoice_with(120, 2 * 30 + 6 * 120, day=3, days=30),
+    ]
+    *_, residual = _fit_marginal_price(invoices)
+    assert residual > 5
