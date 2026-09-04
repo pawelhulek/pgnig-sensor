@@ -1,5 +1,5 @@
 """Additional sensor tests covering edge cases."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -14,6 +14,7 @@ from custom_components.pgnig_gas_sensor.sensor import (
     PgnigInvoiceSensor,
     PgnigCostTrackingSensor,
     _fit_marginal_price,
+    _billing_days,
 )
 from custom_components.pgnig_gas_sensor.Invoices import Invoices, InvoicesList
 
@@ -131,13 +132,20 @@ async def test_sensor_state_none_when_not_updated():
     assert sensor.state is None
 
 
-def _invoice_with(volume, amount, day=1):
-    """Invoice for meter id_pp="1" covering `volume` m3 billed at `amount` gross."""
+def _invoice_with(volume, amount, day=1, days=None):
+    """Invoice for meter id_pp="1" covering `volume` m3 billed at `amount` gross.
+
+    `days` sets the billing period length; None strips the dates so the
+    per-invoice fallback is exercised.
+    """
+    start = datetime(2026, 1, 1)
     return _invoice(
         wear_m3=volume,
         wear=volume,
         gross_amount=amount,
         date=datetime(2026, 1, day),
+        start_date=start if days else None,
+        end_date=(start + timedelta(days=days)) if days else None,
     )
 
 
@@ -145,7 +153,8 @@ def test_marginal_price_separates_fixed_from_variable():
     """amount = fixed + marginal * volume, recovered exactly from clean points."""
     # 40 PLN standing charge, 3 PLN per m3.
     invoices = [_invoice_with(33, 40 + 3 * 33), _invoice_with(300, 40 + 3 * 300)]
-    marginal, fixed, used = _fit_marginal_price(invoices)
+    marginal, fixed, used, model = _fit_marginal_price(invoices)
+    assert model == "per_invoice"
     assert marginal == pytest.approx(3.0)
     assert fixed == pytest.approx(40.0)
     assert used == 2
@@ -161,6 +170,72 @@ def test_marginal_price_needs_two_distinct_volumes():
 def test_marginal_price_rejects_non_positive_rate():
     """A falling amount against a rising volume is not a tariff."""
     assert _fit_marginal_price([_invoice_with(33, 300), _invoice_with(300, 100)]) is None
+
+
+def test_billing_days_reads_the_period():
+    assert _billing_days(_invoice_with(33, 100, days=61)) == 61
+    assert _billing_days(_invoice_with(33, 100)) is None
+
+
+def test_fit_uses_days_when_dates_are_present():
+    """Standing charges accrue per day, so a longer period carries more of them.
+
+    2 PLN/day plus 3 PLN/m3: a 30-day and a 60-day invoice at the same volume
+    differ only by the standing charge, which the per-invoice model cannot
+    separate at all.
+    """
+    invoices = [
+        _invoice_with(33, 2 * 30 + 3 * 33, days=30),
+        _invoice_with(300, 2 * 60 + 3 * 300, days=60),
+    ]
+    marginal, per_day, used, model = _fit_marginal_price(invoices)
+    assert model == "per_day"
+    assert marginal == pytest.approx(3.0)
+    assert per_day == pytest.approx(2.0)
+    assert used == 2
+
+
+def test_fit_falls_back_when_dates_are_missing():
+    """Without usable dates the old per-invoice split still applies."""
+    invoices = [_invoice_with(33, 40 + 3 * 33), _invoice_with(300, 40 + 3 * 300)]
+    marginal, fixed, used, model = _fit_marginal_price(invoices)
+    assert model == "per_invoice"
+    assert marginal == pytest.approx(3.0)
+    assert fixed == pytest.approx(40.0)
+
+
+def test_equal_periods_still_recover_the_rate():
+    """Equal periods are not degenerate; the per-day charge is just fixed/days.
+
+    Volume still varies, so the slope is determined. The standing charge comes
+    out as a rate rather than a lump sum, which is the same information.
+    """
+    invoices = [
+        _invoice_with(33, 40 + 3 * 33, days=30),
+        _invoice_with(300, 40 + 3 * 300, days=30),
+    ]
+    marginal, per_day, _, model = _fit_marginal_price(invoices)
+    assert model == "per_day"
+    assert marginal == pytest.approx(3.0)
+    assert per_day * 30 == pytest.approx(40.0)
+
+
+@pytest.mark.asyncio
+async def test_cost_sensor_reports_per_day_charge(hass: HomeAssistant):
+    """Per-day model also reports the newest invoice's own standing charge."""
+    api = MagicMock()
+    api.invoices.return_value = _make_invoices([
+        _invoice_with(33, 2 * 30 + 3 * 33, day=1, days=30),
+        _invoice_with(300, 2 * 60 + 3 * 300, day=2, days=60),
+    ])
+    sensor = PgnigCostTrackingSensor(hass, api, "M1", 1)
+    await sensor.async_update()
+
+    attrs = sensor.extra_state_attributes
+    assert attrs["marginal_price_model"] == "per_day"
+    assert attrs["fixed_charge_per_day"] == pytest.approx(2.0)
+    assert attrs["last_invoice_days"] == 60
+    assert attrs["fixed_charge_per_invoice"] == pytest.approx(120.0)
 
 
 @pytest.mark.asyncio

@@ -21,29 +21,88 @@ from .PpgReadingForMeter import MeterReading
 from .const import DEFAULT_AUTH_METHOD, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+def _billing_days(invoice: "InvoicesList") -> int | None:
+    """Length of the billing period in days, or None if the dates are unusable."""
+    start = getattr(invoice, "start_date", None)
+    end = getattr(invoice, "end_date", None)
+    if start is None or end is None:
+        return None
+    days = (end - start).days
+    return days if days > 0 else None
+
+
 def _fit_marginal_price(
     invoices: list["InvoicesList"],
-) -> tuple[float, float, int] | None:
-    """Least-squares split of invoices into a per-m3 rate and a fixed charge.
+) -> tuple[float, float, int, str] | None:
+    """Split invoices into a per-m3 rate and the standing charges.
 
     The sensor state is gross_amount / volume, which folds the standing charges
     (subscription, fixed distribution fee) into the rate. That makes the figure
     rise as consumption falls -- the opposite of how a price behaves -- so it
     overstates cost when used as a price, worst outside the heating season.
 
-    Billing is linear in volume:
+    Two models, preferred in order:
+
+    Per day, when the invoices carry usable start and end dates:
+
+        amount = per_day * days + marginal * volume
+
+    Standing charges accrue per day, not per invoice, so a two-month invoice
+    carries twice the subscription of a one-month one. Fitting against days
+    keeps periods of different length from distorting the split.
+
+    Per invoice, as a fallback:
 
         amount = fixed + marginal * volume
 
-    so two invoices at different volumes already determine both terms, and more
-    invoices average out rounding. Returns None when the invoices do not span at
-    least two distinct volumes, since the system is then underdetermined.
+    Returns (marginal, standing, invoices_used, model) where `standing` is
+    PLN/day for the "per_day" model and PLN/invoice for "per_invoice".
+    Returns None when the data cannot determine the split.
     """
-    points = [
-        (x.wear_m3 or x.wear, x.gross_amount)
+    dated = [
+        (_billing_days(x), x.wear_m3 or x.wear, x.gross_amount)
         for x in invoices
         if (x.wear_m3 or x.wear) and x.gross_amount is not None
     ]
+    with_days = [(d, v, y) for d, v, y in dated if d is not None]
+
+    if len(with_days) >= 2:
+        fit = _solve_two_term(with_days)
+        if fit is not None:
+            per_day, marginal = fit
+            return marginal, per_day, len(with_days), "per_day"
+
+    points = [(v, y) for _, v, y in dated]
+    fit = _solve_with_intercept(points)
+    if fit is None:
+        return None
+    fixed, marginal = fit
+    return marginal, fixed, len(points), "per_invoice"
+
+
+def _solve_two_term(rows: list[tuple[float, float, float]]) -> tuple[float, float] | None:
+    """Least squares for y = a*days + b*volume, no intercept."""
+    sum_dd = sum(d * d for d, _, _ in rows)
+    sum_dv = sum(d * v for d, v, _ in rows)
+    sum_vv = sum(v * v for _, v, _ in rows)
+    sum_dy = sum(d * y for d, _, y in rows)
+    sum_vy = sum(v * y for _, v, y in rows)
+
+    determinant = sum_dd * sum_vv - sum_dv * sum_dv
+    if determinant == 0:
+        # Days and volume move together across every invoice, so their effects
+        # cannot be told apart.
+        return None
+
+    a = (sum_dy * sum_vv - sum_vy * sum_dv) / determinant
+    b = (sum_vy * sum_dd - sum_dy * sum_dv) / determinant
+    if b <= 0 or a < 0:
+        return None
+    return a, b
+
+
+def _solve_with_intercept(points: list[tuple[float, float]]) -> tuple[float, float] | None:
+    """Least squares for y = intercept + slope*x."""
     n = len(points)
     if n < 2:
         return None
@@ -55,17 +114,16 @@ def _fit_marginal_price(
 
     denominator = n * sum_xx - sum_x * sum_x
     if denominator == 0:
-        # Every invoice covers the same volume; the fixed and variable parts
-        # cannot be separated.
+        # Every invoice covers the same volume; the split is undetermined.
         return None
 
-    marginal = (n * sum_xy - sum_x * sum_y) / denominator
-    fixed = (sum_y - marginal * sum_x) / n
-    if marginal <= 0:
+    slope = (n * sum_xy - sum_x * sum_y) / denominator
+    intercept = (sum_y - slope * sum_x) / n
+    if slope <= 0:
         # A non-positive rate means the data does not describe a tariff, most
         # likely a corrected or re-issued invoice. Better to report nothing.
         return None
-    return marginal, fixed, n
+    return intercept, slope
 
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -301,10 +359,18 @@ class PgnigCostTrackingSensor(SensorEntity):
             attrs["last_invoice_number"] = self._state.number
         fit = _fit_marginal_price(self._invoices)
         if fit is not None:
-            marginal, fixed, used = fit
+            marginal, standing, used, model = fit
             attrs["marginal_price"] = round(marginal, 4)
-            attrs["fixed_charge_per_invoice"] = round(fixed, 2)
             attrs["marginal_price_invoices_used"] = used
+            attrs["marginal_price_model"] = model
+            if model == "per_day":
+                attrs["fixed_charge_per_day"] = round(standing, 4)
+                days = _billing_days(self._state) if self._state is not None else None
+                if days:
+                    attrs["fixed_charge_per_invoice"] = round(standing * days, 2)
+                    attrs["last_invoice_days"] = days
+            else:
+                attrs["fixed_charge_per_invoice"] = round(standing, 2)
         return attrs
 
     async def async_update(self):
