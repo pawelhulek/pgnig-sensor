@@ -13,6 +13,7 @@ from custom_components.pgnig_gas_sensor.sensor import (
     PgnigSensor,
     PgnigInvoiceSensor,
     PgnigCostTrackingSensor,
+    _fit_marginal_price,
 )
 from custom_components.pgnig_gas_sensor.Invoices import Invoices, InvoicesList
 
@@ -128,6 +129,66 @@ async def test_sensor_state_none_when_not_updated():
     api = MagicMock()
     sensor = PgnigSensor(MagicMock(), api, "M1", 1)
     assert sensor.state is None
+
+
+def _invoice_with(volume, amount, day=1):
+    """Invoice for meter id_pp="1" covering `volume` m3 billed at `amount` gross."""
+    return _invoice(
+        wear_m3=volume,
+        wear=volume,
+        gross_amount=amount,
+        date=datetime(2026, 1, day),
+    )
+
+
+def test_marginal_price_separates_fixed_from_variable():
+    """amount = fixed + marginal * volume, recovered exactly from clean points."""
+    # 40 PLN standing charge, 3 PLN per m3.
+    invoices = [_invoice_with(33, 40 + 3 * 33), _invoice_with(300, 40 + 3 * 300)]
+    marginal, fixed, used = _fit_marginal_price(invoices)
+    assert marginal == pytest.approx(3.0)
+    assert fixed == pytest.approx(40.0)
+    assert used == 2
+
+
+def test_marginal_price_needs_two_distinct_volumes():
+    """One invoice, or several at the same volume, leaves the split undetermined."""
+    assert _fit_marginal_price([]) is None
+    assert _fit_marginal_price([_invoice_with(33, 139)]) is None
+    assert _fit_marginal_price([_invoice_with(33, 139), _invoice_with(33, 139)]) is None
+
+
+def test_marginal_price_rejects_non_positive_rate():
+    """A falling amount against a rising volume is not a tariff."""
+    assert _fit_marginal_price([_invoice_with(33, 300), _invoice_with(300, 100)]) is None
+
+
+@pytest.mark.asyncio
+async def test_cost_sensor_reports_marginal_price(hass: HomeAssistant):
+    """The regression reaches the attributes alongside the average."""
+    api = MagicMock()
+    api.invoices.return_value = _make_invoices(
+        [_invoice_with(33, 40 + 3 * 33, day=1), _invoice_with(300, 40 + 3 * 300, day=2)]
+    )
+    sensor = PgnigCostTrackingSensor(hass, api, "M1", 1)
+    await sensor.async_update()
+
+    attrs = sensor.extra_state_attributes
+    assert attrs["marginal_price"] == pytest.approx(3.0)
+    assert attrs["fixed_charge_per_invoice"] == pytest.approx(40.0)
+    assert attrs["marginal_price_invoices_used"] == 2
+    # The state stays the average including standing charges, unchanged.
+    assert sensor.state == pytest.approx((40 + 3 * 300) / 300)
+
+
+@pytest.mark.asyncio
+async def test_cost_sensor_omits_marginal_price_when_undetermined(hass: HomeAssistant):
+    """A single invoice must not produce a made-up rate."""
+    api = MagicMock()
+    api.invoices.return_value = _make_invoices([_invoice_with(33, 139)])
+    sensor = PgnigCostTrackingSensor(hass, api, "M1", 1)
+    await sensor.async_update()
+    assert "marginal_price" not in sensor.extra_state_attributes
 
 
 @pytest.mark.asyncio

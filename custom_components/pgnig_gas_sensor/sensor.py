@@ -21,6 +21,53 @@ from .PpgReadingForMeter import MeterReading
 from .const import DEFAULT_AUTH_METHOD, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+def _fit_marginal_price(
+    invoices: list["InvoicesList"],
+) -> tuple[float, float, int] | None:
+    """Least-squares split of invoices into a per-m3 rate and a fixed charge.
+
+    The sensor state is gross_amount / volume, which folds the standing charges
+    (subscription, fixed distribution fee) into the rate. That makes the figure
+    rise as consumption falls -- the opposite of how a price behaves -- so it
+    overstates cost when used as a price, worst outside the heating season.
+
+    Billing is linear in volume:
+
+        amount = fixed + marginal * volume
+
+    so two invoices at different volumes already determine both terms, and more
+    invoices average out rounding. Returns None when the invoices do not span at
+    least two distinct volumes, since the system is then underdetermined.
+    """
+    points = [
+        (x.wear_m3 or x.wear, x.gross_amount)
+        for x in invoices
+        if (x.wear_m3 or x.wear) and x.gross_amount is not None
+    ]
+    n = len(points)
+    if n < 2:
+        return None
+
+    sum_x = sum(p[0] for p in points)
+    sum_y = sum(p[1] for p in points)
+    sum_xy = sum(p[0] * p[1] for p in points)
+    sum_xx = sum(p[0] * p[0] for p in points)
+
+    denominator = n * sum_xx - sum_x * sum_x
+    if denominator == 0:
+        # Every invoice covers the same volume; the fixed and variable parts
+        # cannot be separated.
+        return None
+
+    marginal = (n * sum_xy - sum_x * sum_y) / denominator
+    fixed = (sum_y - marginal * sum_x) / n
+    if marginal <= 0:
+        # A non-positive rate means the data does not describe a tariff, most
+        # likely a corrected or re-issued invoice. Better to report nothing.
+        return None
+    return marginal, fixed, n
+
+
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_USERNAME): cv.string,
     vol.Required(CONF_PASSWORD): cv.string,
@@ -209,6 +256,7 @@ class PgnigCostTrackingSensor(SensorEntity):
         self._attr_device_class = SensorDeviceClass.MONETARY
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._state: InvoicesList | None = None
+        self._invoices: list[InvoicesList] = []
         self.hass = hass
         self.api = api
         self.meter_id = meter_id
@@ -251,14 +299,22 @@ class PgnigCostTrackingSensor(SensorEntity):
             attrs["last_invoice_wear_m3"] = self._state.wear_m3
             attrs["last_invoice_wear_KWH"] = self._state.wear_kwh
             attrs["last_invoice_number"] = self._state.number
+        fit = _fit_marginal_price(self._invoices)
+        if fit is not None:
+            marginal, fixed, used = fit
+            attrs["marginal_price"] = round(marginal, 4)
+            attrs["fixed_charge_per_invoice"] = round(fixed, 2)
+            attrs["marginal_price_invoices_used"] = used
         return attrs
 
     async def async_update(self):
         _LOGGER.debug("Updating cost tracking sensor %s", self.meter_id)
-        self._state = await self.hass.async_add_executor_job(self.latest_price)
+        self._invoices = await self.hass.async_add_executor_job(self.valid_invoices)
+        self._state = max(self._invoices, key=lambda z: z.date) if self._invoices else None
         _LOGGER.debug("Cost tracking sensor %s updated: %s", self.meter_id, self.state)
 
-    def latest_price(self):
+    def valid_invoices(self) -> list[InvoicesList]:
+        """Invoices for this meter that carry both a volume and an amount."""
         id_local = self.id_local
         invoices = self.api.invoices().invoices_list
 
@@ -273,5 +329,8 @@ class PgnigCostTrackingSensor(SensorEntity):
                 and not x.is_credit_note
             )
 
-        valid_invoices = list(filter(has_valid_consumption, invoices))
+        return list(filter(has_valid_consumption, invoices))
+
+    def latest_price(self):
+        valid_invoices = self.valid_invoices()
         return max(valid_invoices, key=lambda z: z.date) if valid_invoices else None
