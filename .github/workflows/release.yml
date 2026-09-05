@@ -16,13 +16,22 @@ jobs:
         id: version
         uses: home-assistant/actions/helpers/version@master
 
+      # The version helper reports the tag verbatim ("v3.1.4"), while
+      # manifest.json carries a bare semver ("3.1.4"). Normalise once so the
+      # check below and the manifest rewrite both use the same form.
+      - name: "Resolve version"
+        id: resolved
+        run: |
+          RAW="${{ steps.version.outputs.version }}"
+          echo "version=${RAW#v}" >> "$GITHUB_OUTPUT"
+
       # HACS installs this repository from source, not from the release asset,
       # so the committed manifest version is what users actually see. Fail the
       # release rather than shipping a version that disagrees with the tag.
       - name: "Check manifest version matches the tag"
         run: |
           MANIFEST_VERSION=$(python3 -c "import json;print(json.load(open('custom_components/pgnig_gas_sensor/manifest.json'))['version'])")
-          TAG_VERSION="${{ steps.version.outputs.version }}"
+          TAG_VERSION="${{ steps.resolved.outputs.version }}"
           if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
             echo "::error::manifest.json says $MANIFEST_VERSION but the release tag is $TAG_VERSION."
             echo "::error::Bump \"version\" in custom_components/pgnig_gas_sensor/manifest.json to $TAG_VERSION and re-run the release."
@@ -32,7 +41,7 @@ jobs:
 
       - name: "Set manifest version number"
         run: |
-          python3 ${{ github.workspace }}/.github/scripts/update_hacs_manifest.py --version ${{ steps.version.outputs.version }}
+          python3 ${{ github.workspace }}/.github/scripts/update_hacs_manifest.py --version ${{ steps.resolved.outputs.version }}
 
       - name: Create zip
         run: |
