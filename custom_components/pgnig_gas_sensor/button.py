@@ -19,12 +19,11 @@ async def async_setup_entry(
         async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the PGNIG button."""
-    api = hass.data[DOMAIN][config_entry.entry_id]
-    meter_list = await hass.async_add_executor_job(api.meterList)
+    runtime = hass.data[DOMAIN][config_entry.entry_id]
 
     buttons = [
         PgnigRefreshButton(hass, meter.meter_number, meter.id_local, config_entry.entry_id)
-        for meter in meter_list.ppg_list
+        for meter in runtime.meters.ppg_list
     ]
     async_add_entities(buttons)
 
