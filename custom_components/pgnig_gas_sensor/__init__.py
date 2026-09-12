@@ -11,7 +11,6 @@ from homeassistant.config_entries import SOURCE_IMPORT
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers import entity_registry
 from homeassistant.helpers.event import async_track_time_interval
 
 from .auth.exceptions import AuthError
@@ -24,6 +23,7 @@ from .const import (
     DOMAIN,
     ORLEN_SESSION_REFRESH_MINUTES,
 )
+from .coordinator import PgnigCoordinator
 from .PgnigApi import PgnigApi
 from .PgpList import PpgList
 from .runtime import PgnigRuntimeData
@@ -55,26 +55,23 @@ async def async_setup_entry(hass, config_entry):
     mfa_enabled = config_entry.data.get(CONF_MFA_ENABLED, True)
     session_data = config_entry.data.get(CONF_ORLEN_SESSION)
     api = PgnigApi(user, password, auth_method, session_data=session_data, mfa_enabled=mfa_enabled)
-    hass.data[DOMAIN][config_entry.entry_id] = await _async_build_runtime_data(hass, api)
+    hass.data[DOMAIN][config_entry.entry_id] = await _async_build_runtime_data(
+        hass, config_entry, api
+    )
 
     await hass.config_entries.async_forward_entry_setups(config_entry, ["sensor", "button"])
 
     async def handle_refresh(call):
+        """Poll now instead of waiting for the next scheduled update.
+
+        The coordinator pushes the result to every entity, so there is no need
+        to walk the entity registry and update each one in turn.
+        """
         _LOGGER.debug("Refresh service called for config entry %s", config_entry.entry_id)
-        er = entity_registry.async_get(hass)
-        entities = [
-            entry.entity_id
-            for entry in list(er.entities.values())
-            if entry.config_entry_id == config_entry.entry_id
-        ]
-        _LOGGER.debug("Found %d entities to refresh: %s", len(entities), entities)
-        for entity_id in entities:
-            _LOGGER.debug("Triggering update for %s", entity_id)
-            await hass.services.async_call(
-                "homeassistant", "update_entity",
-                {"entity_id": entity_id},
-                blocking=True
-            )
+        runtime = hass.data[DOMAIN].get(config_entry.entry_id)
+        if runtime is None:
+            return
+        await runtime.coordinator.async_refresh()
         _LOGGER.debug("Refresh complete for config entry %s", config_entry.entry_id)
 
     hass.services.async_register(
@@ -103,7 +100,7 @@ async def async_setup_entry(hass, config_entry):
 
 
 async def _async_build_runtime_data(
-    hass: HomeAssistant, api: PgnigApi
+    hass: HomeAssistant, config_entry, api: PgnigApi
 ) -> PgnigRuntimeData:
     """Authenticate and resolve the meter list before any platform is forwarded.
 
@@ -118,13 +115,15 @@ async def _async_build_runtime_data(
         return api.meterList()
 
     try:
-        return PgnigRuntimeData(
-            api=api, meters=await hass.async_add_executor_job(_load)
-        )
+        meters = await hass.async_add_executor_job(_load)
     except AuthError as err:
         raise ConfigEntryAuthFailed(str(err)) from err
     except Exception as err:
         raise ConfigEntryNotReady(f"Could not reach Orlen EBOK: {err}") from err
+
+    coordinator = PgnigCoordinator(hass, config_entry, api, meters)
+    await coordinator.async_config_entry_first_refresh()
+    return PgnigRuntimeData(api=api, meters=meters, coordinator=coordinator)
 
 
 async def _async_refresh_orlen_session(hass: HomeAssistant, config_entry) -> None:
