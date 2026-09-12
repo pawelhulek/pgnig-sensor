@@ -89,7 +89,9 @@ def entities_for_meters(coordinator: PgnigCoordinator) -> list[SensorEntity]:
         entity
         for meter in coordinator.meters.ppg_list
         for entity in (
-            PgnigSensor(coordinator, meter.meter_number, meter.id_local),
+            PgnigSensor(
+                coordinator, meter.meter_number, meter.id_local, tariff=meter.tariff
+            ),
             PgnigInvoiceSensor(coordinator, meter.meter_number, meter.id_local),
             PgnigCostTrackingSensor(coordinator, meter.meter_number, meter.id_local),
         )
@@ -180,6 +182,16 @@ class PgnigSensor(PgnigBaseSensor):
     _attr_device_class = SensorDeviceClass.GAS
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
 
+    def __init__(
+        self,
+        coordinator: PgnigCoordinator,
+        meter_id: str,
+        id_local: int,
+        tariff: str | None = None,
+    ) -> None:
+        self.tariff = tariff
+        super().__init__(coordinator, meter_id, id_local)
+
     def _state_from(self, data: PgnigData):
         return data.readings.get(self.meter_id)
 
@@ -192,6 +204,8 @@ class PgnigSensor(PgnigBaseSensor):
     @property
     def extra_state_attributes(self):
         attrs = dict()
+        if self.tariff:
+            attrs["tariff"] = self.tariff
         if self._state is not None:
             attrs["wear"] = self._state.wear
             attrs["wear_unit_of_measurment"] = UnitOfVolume.CUBIC_METERS
