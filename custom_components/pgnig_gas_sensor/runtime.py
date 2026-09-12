@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .coordinator import PgnigCoordinator
 from .PgnigApi import PgnigApi
 from .PgpList import PpgList
 
@@ -18,3 +19,4 @@ class PgnigRuntimeData:
 
     api: PgnigApi
     meters: PpgList
+    coordinator: PgnigCoordinator

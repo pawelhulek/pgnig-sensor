@@ -10,6 +10,8 @@ from custom_components.pgnig_gas_sensor.button import (
 from custom_components.pgnig_gas_sensor.const import DOMAIN
 from custom_components.pgnig_gas_sensor.runtime import PgnigRuntimeData
 
+from .builders import build_stub_coordinator
+
 
 def test_button_entity_attributes():
     button = PgnigRefreshButton(
@@ -47,7 +49,11 @@ async def test_async_setup_entry_creates_buttons(
     async_add_entities = MagicMock()
     hass.data = {
         DOMAIN: {
-            "test_entry": PgnigRuntimeData(api=mock_api, meters=mock_meters),
+            "test_entry": PgnigRuntimeData(
+                api=mock_api,
+                meters=mock_meters,
+                coordinator=build_stub_coordinator(hass),
+            ),
         }
     }
 
@@ -67,7 +73,11 @@ async def test_async_setup_entry_does_not_refetch_meters(
     config_entry.entry_id = "test_entry"
     hass.data = {
         DOMAIN: {
-            "test_entry": PgnigRuntimeData(api=mock_api, meters=mock_meters),
+            "test_entry": PgnigRuntimeData(
+                api=mock_api,
+                meters=mock_meters,
+                coordinator=build_stub_coordinator(hass),
+            ),
         }
     }
 

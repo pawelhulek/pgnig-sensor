@@ -2,30 +2,88 @@
 from __future__ import annotations
 
 import logging
-import string
-from datetime import timedelta
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from homeassistant.components.sensor import SensorEntity, PLATFORM_SCHEMA, SensorStateClass, SensorDeviceClass
+from homeassistant.components.sensor import (
+    PLATFORM_SCHEMA,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, UnitOfVolume
-from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, UnitOfVolume
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-
+from .const import DEFAULT_AUTH_METHOD, DOMAIN
+from .coordinator import PgnigCoordinator, PgnigData
 from .Invoices import InvoicesList
 from .PgnigApi import PgnigApi
-from .PpgReadingForMeter import MeterReading
-from .const import DEFAULT_AUTH_METHOD, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_USERNAME): cv.string,
     vol.Required(CONF_PASSWORD): cv.string,
 })
-SCAN_INTERVAL = timedelta(hours=8)
+
+
+def invoice_summary(
+    invoices: Sequence[InvoicesList], id_local: int
+) -> dict[str, Any]:
+    """Unpaid total and the next payment due for one meter."""
+
+    def upcoming_payment_for_meter(x: InvoicesList) -> bool:
+        return str(id_local) == str(x.id_pp) and not x.is_paid and not x.is_credit_note
+
+    unpaid_invoices = list(filter(upcoming_payment_for_meter, invoices))
+    sum_of_unpaid_invoices = sum(x.amount_to_pay for x in unpaid_invoices)
+    next_payment_item = (
+        min(unpaid_invoices, key=lambda z: z.date) if unpaid_invoices else None
+    )
+
+    return {
+        "sumOfUnpaidInvoices": sum_of_unpaid_invoices,
+        "nextPaymentDate": next_payment_item.paying_deadline_date if next_payment_item else None,
+        "nextPaymentWear": next_payment_item.wear_m3 or next_payment_item.wear if next_payment_item else None,
+        "nextPaymentWearKWH": next_payment_item.wear_kwh if next_payment_item else None,
+        "nextPaymentAmountToPay": next_payment_item.amount_to_pay if next_payment_item else None,
+    }
+
+
+def latest_priced_invoice(
+    invoices: Sequence[InvoicesList], id_local: int
+) -> InvoicesList | None:
+    """The newest invoice for one meter that carries a usable price per m³."""
+
+    def has_valid_consumption(x: InvoicesList) -> bool:
+        gas_m3 = x.wear_m3 or x.wear
+        return (
+            str(id_local) == str(x.id_pp)
+            and gas_m3 is not None
+            and gas_m3 != 0
+            and x.gross_amount is not None
+            and x.gross_amount != 0
+            and not x.is_credit_note
+        )
+
+    valid_invoices = list(filter(has_valid_consumption, invoices))
+    return max(valid_invoices, key=lambda z: z.date) if valid_invoices else None
+
+
+def entities_for_meters(coordinator: PgnigCoordinator) -> list[SensorEntity]:
+    """Every sensor the given coordinator feeds."""
+    return [
+        entity
+        for meter in coordinator.meters.ppg_list
+        for entity in (
+            PgnigSensor(coordinator, meter.meter_number, meter.id_local),
+            PgnigInvoiceSensor(coordinator, meter.meter_number, meter.id_local),
+            PgnigCostTrackingSensor(coordinator, meter.meter_number, meter.id_local),
+        )
+    ]
 
 
 async def async_setup_entry(
@@ -34,15 +92,7 @@ async def async_setup_entry(
         async_add_entities,
 ):
     runtime = hass.data[DOMAIN][config_entry.entry_id]
-    api = runtime.api
-
-    for x in runtime.meters.ppg_list:
-        meter_id = x.meter_number
-        async_add_entities(
-            [PgnigSensor(hass, api, meter_id, x.id_local),
-             PgnigInvoiceSensor(hass, api, meter_id, x.id_local),
-             PgnigCostTrackingSensor(hass, api, meter_id, x.id_local)],
-            update_before_add=True)
+    async_add_entities(entities_for_meters(runtime.coordinator))
 
 
 async def async_setup_platform(
@@ -52,40 +102,40 @@ async def async_setup_platform(
         discovery_info: Optional[DiscoveryInfoType] = None,
 ) -> None:
     api = PgnigApi(config.get(CONF_USERNAME), config.get(CONF_PASSWORD), DEFAULT_AUTH_METHOD)
-    try:
-        pgps = await hass.async_add_executor_job(api.meterList)
-    except Exception as err:
-        _LOGGER.error("Failed to set up PGNiG sensor: %s", err)
-        raise
-
-    for x in pgps.ppg_list:
-        async_add_entities(
-            [PgnigSensor(hass, api, x.meter_number, x.id_local),
-             PgnigInvoiceSensor(hass, api, x.meter_number, x.id_local),
-             PgnigCostTrackingSensor(hass, api, x.meter_number, x.id_local)],
-            update_before_add=True)
+    meters = await hass.async_add_executor_job(api.meterList)
+    coordinator = PgnigCoordinator(hass, None, api, meters)
+    await coordinator.async_refresh()
+    async_add_entities(entities_for_meters(coordinator))
 
 
-class PgnigSensor(SensorEntity):
-    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
-        self._attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
-        self._attr_device_class = SensorDeviceClass.GAS
-        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
-        self._state: MeterReading | None = None
-        self.hass = hass
-        self.api = api
+class PgnigBaseSensor(CoordinatorEntity[PgnigCoordinator], SensorEntity):
+    """Shared identity and state refresh for one meter's sensors.
+
+    State is recomputed when the coordinator delivers a poll, so the entities
+    never touch the API themselves.
+    """
+
+    _name_prefix: str
+    _unique_id_prefix: str
+
+    def __init__(
+        self, coordinator: PgnigCoordinator, meter_id: str, id_local: int
+    ) -> None:
+        super().__init__(coordinator)
         self.meter_id = meter_id
         self.id_local = id_local
-        self.entity_name = "Orlen Gas Sensor " + meter_id + " " + str(id_local)
+        self.entity_name = f"{self._name_prefix} {meter_id} {id_local}"
+        self._state: Any = None
+        self._refresh_state()
 
     @property
     def unique_id(self) -> str | None:
-        return "pgnig_sensor" + self.meter_id + "_" + str(self.id_local)
+        return f"{self._unique_id_prefix}{self.meter_id}_{self.id_local}"
 
     @property
     def device_info(self):
         return {
-            "identifiers": {("pgnig_gas_sensor", self.meter_id)},
+            "identifiers": {(DOMAIN, self.meter_id)},
             "name": f"Orlen GAS METER ID {self.meter_id}",
             "manufacturer": "Orlen",
             "model": self.meter_id,
@@ -94,6 +144,34 @@ class PgnigSensor(SensorEntity):
     @property
     def name(self) -> str:
         return self.entity_name
+
+    def _state_from(self, data: PgnigData) -> Any:
+        """Derive this entity's state from one poll."""
+        raise NotImplementedError
+
+    def _refresh_state(self) -> None:
+        data = self.coordinator.data
+        self._state = None if data is None else self._state_from(data)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._refresh_state()
+        _LOGGER.debug("%s updated: %s", self.entity_name, self.state)
+        super()._handle_coordinator_update()
+
+
+class PgnigSensor(PgnigBaseSensor):
+    """Latest meter reading."""
+
+    _name_prefix = "Orlen Gas Sensor"
+    _unique_id_prefix = "pgnig_sensor"
+
+    _attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
+    _attr_device_class = SensorDeviceClass.GAS
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def _state_from(self, data: PgnigData):
+        return data.readings.get(self.meter_id)
 
     @property
     def state(self):
@@ -109,47 +187,19 @@ class PgnigSensor(SensorEntity):
             attrs["wear_unit_of_measurment"] = UnitOfVolume.CUBIC_METERS
         return attrs
 
-    async def async_update(self):
-        _LOGGER.debug("Updating meter sensor %s", self.meter_id)
-        latest_meter_reading: MeterReading = await self.hass.async_add_executor_job(self.latestMeterReading)
-        self._state = latest_meter_reading
-        _LOGGER.debug("Meter sensor %s updated: %s", self.meter_id, self._state.value if self._state else None)
 
-    def latestMeterReading(self):
-        readings = self.api.readingForMeter(self.meter_id).meter_readings
-        if not readings:
-            return None
-        return max(readings, key=lambda z: z.reading_date_utc)
+class PgnigInvoiceSensor(PgnigBaseSensor):
+    """Total still owed, plus the next payment due."""
 
+    _name_prefix = "Orlen Gas Invoice Sensor"
+    _unique_id_prefix = "pgnig_invoice_sensor"
 
-class PgnigInvoiceSensor(SensorEntity):
-    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
-        self._attr_native_unit_of_measurement = "PLN"
-        self._attr_device_class = SensorDeviceClass.MONETARY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._state: MeterReading | None = None
-        self.hass = hass
-        self.api = api
-        self.meter_id = meter_id
-        self.id_local = id_local
-        self.entity_name = "Orlen Gas Invoice Sensor " + meter_id + " " + str(id_local)
+    _attr_native_unit_of_measurement = "PLN"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
-    @property
-    def unique_id(self) -> str | None:
-        return "pgnig_invoice_sensor" + self.meter_id + "_" + str(self.id_local)
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {("pgnig_gas_sensor", self.meter_id)},
-            "name": f"Orlen GAS METER ID {self.meter_id}",
-            "manufacturer": "Orlen",
-            "model": self.meter_id,
-        }
-
-    @property
-    def name(self) -> str:
-        return self.entity_name
+    def _state_from(self, data: PgnigData):
+        return invoice_summary(data.invoices, self.id_local)
 
     @property
     def state(self):
@@ -167,64 +217,19 @@ class PgnigInvoiceSensor(SensorEntity):
             attrs["next_payment_wear_KWH"] = self._state.get("nextPaymentWearKWH")
         return attrs
 
-    async def async_update(self):
-        _LOGGER.debug("Updating invoice sensor %s", self.meter_id)
-        self._state = await self.hass.async_add_executor_job(self.invoices_summary)
-        _LOGGER.debug("Invoice sensor %s updated: sumOfUnpaidInvoices=%s", self.meter_id,
-                     self._state.get("sumOfUnpaidInvoices") if self._state else None)
 
-    def invoices_summary(self):
-        id_local = self.id_local
-        invoices = self.api.invoices().invoices_list
+class PgnigCostTrackingSensor(PgnigBaseSensor):
+    """Price per m³ from the most recent priced invoice."""
 
-        def upcoming_payment_for_meter(x: InvoicesList):
-            return str(id_local) == str(x.id_pp) and not x.is_paid and not x.is_credit_note
+    _name_prefix = "Orlen Gas Cost Tracking Sensor"
+    _unique_id_prefix = "pgnig_cost_tracking_sensor"
 
-        def to_amount_to_pay(x: InvoicesList):
-            return x.amount_to_pay
+    _attr_native_unit_of_measurement = "PLN/m³"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
-        unpaid_invoices = list(filter(upcoming_payment_for_meter, invoices))
-        sum_of_unpaid_invoices = sum(map(to_amount_to_pay, unpaid_invoices))
-
-        next_payment_item = min(unpaid_invoices, key=lambda z: z.date) if unpaid_invoices else None
-
-        return {
-            "sumOfUnpaidInvoices": sum_of_unpaid_invoices,
-            "nextPaymentDate": next_payment_item.paying_deadline_date if next_payment_item else None,
-            "nextPaymentWear": next_payment_item.wear_m3 or next_payment_item.wear if next_payment_item else None,
-            "nextPaymentWearKWH": next_payment_item.wear_kwh if next_payment_item else None,
-            "nextPaymentAmountToPay": next_payment_item.amount_to_pay if next_payment_item else None,
-        }
-
-
-class PgnigCostTrackingSensor(SensorEntity):
-    def __init__(self, hass, api: PgnigApi, meter_id: string, id_local: int) -> None:
-        self._attr_native_unit_of_measurement = "PLN/m³"
-        self._attr_device_class = SensorDeviceClass.MONETARY
-        self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._state: InvoicesList | None = None
-        self.hass = hass
-        self.api = api
-        self.meter_id = meter_id
-        self.id_local = id_local
-        self.entity_name = "Orlen Gas Cost Tracking Sensor " + meter_id + " " + str(id_local)
-
-    @property
-    def unique_id(self) -> str | None:
-        return "pgnig_cost_tracking_sensor" + self.meter_id + "_" + str(self.id_local)
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {("pgnig_gas_sensor", self.meter_id)},
-            "name": f"Orlen GAS METER ID {self.meter_id}",
-            "manufacturer": "Orlen",
-            "model": self.meter_id,
-        }
-
-    @property
-    def name(self) -> str:
-        return self.entity_name
+    def _state_from(self, data: PgnigData):
+        return latest_priced_invoice(data.invoices, self.id_local)
 
     @property
     def state(self):
@@ -245,26 +250,3 @@ class PgnigCostTrackingSensor(SensorEntity):
             attrs["last_invoice_wear_KWH"] = self._state.wear_kwh
             attrs["last_invoice_number"] = self._state.number
         return attrs
-
-    async def async_update(self):
-        _LOGGER.debug("Updating cost tracking sensor %s", self.meter_id)
-        self._state = await self.hass.async_add_executor_job(self.latest_price)
-        _LOGGER.debug("Cost tracking sensor %s updated: %s", self.meter_id, self.state)
-
-    def latest_price(self):
-        id_local = self.id_local
-        invoices = self.api.invoices().invoices_list
-
-        def has_valid_consumption(x: InvoicesList) -> bool:
-            gas_m3 = x.wear_m3 or x.wear
-            return (
-                str(id_local) == str(x.id_pp)
-                and gas_m3 is not None
-                and gas_m3 != 0
-                and x.gross_amount is not None
-                and x.gross_amount != 0
-                and not x.is_credit_note
-            )
-
-        valid_invoices = list(filter(has_valid_consumption, invoices))
-        return max(valid_invoices, key=lambda z: z.date) if valid_invoices else None
