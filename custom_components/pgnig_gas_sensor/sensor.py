@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any, Callable, Optional, Sequence
 
 import homeassistant.helpers.config_validation as cv
@@ -28,6 +29,15 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_USERNAME): cv.string,
     vol.Required(CONF_PASSWORD): cv.string,
 })
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Return an aware UTC datetime; EBOK sends ReadingDateUtc without a suffix."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def invoice_summary(
@@ -185,6 +195,10 @@ class PgnigSensor(PgnigBaseSensor):
         if self._state is not None:
             attrs["wear"] = self._state.wear
             attrs["wear_unit_of_measurment"] = UnitOfVolume.CUBIC_METERS
+            attrs["reading_date"] = _as_utc(self._state.reading_date_utc)
+            attrs["reading_date_local"] = self._state.reading_date_local
+            attrs["reading_type"] = self._state.type
+            attrs["reading_status"] = self._state.status
         return attrs
 
 
