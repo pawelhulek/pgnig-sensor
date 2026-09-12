@@ -1,5 +1,5 @@
 """Additional sensor tests covering identity and empty-data edge cases."""
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -129,6 +129,22 @@ async def test_meter_sensor_attributes(hass: HomeAssistant):
     attrs = PgnigSensor(coordinator, "M1", 1).extra_state_attributes
     assert attrs["wear"] == 75
     assert attrs["wear_unit_of_measurment"] == "m³"
+
+
+async def test_meter_sensor_exposes_reading_metadata(hass: HomeAssistant):
+    """Reading date, type and status must reach the attributes."""
+    reading = make_reading(
+        status="Zaakceptowany",
+        type="Odczyt",
+        reading_date_local=datetime(2026, 9, 1, 12, 30),
+        reading_date_utc=datetime(2026, 9, 1, 10, 30),
+    )
+    coordinator = build_stub_coordinator(hass, readings={"M1": reading})
+    attrs = PgnigSensor(coordinator, "M1", 1).extra_state_attributes
+    assert attrs["reading_type"] == "Odczyt"
+    assert attrs["reading_status"] == "Zaakceptowany"
+    assert attrs["reading_date"] == datetime(2026, 9, 1, 10, 30, tzinfo=UTC)
+    assert attrs["reading_date_local"] == datetime(2026, 9, 1, 12, 30)
 
 
 async def test_invoice_sensor_attributes(hass: HomeAssistant):
