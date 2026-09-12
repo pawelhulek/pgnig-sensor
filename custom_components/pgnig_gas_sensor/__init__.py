@@ -10,10 +10,11 @@ from homeassistant.components.sensor import PLATFORM_SCHEMA
 from homeassistant.config_entries import SOURCE_IMPORT
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import entity_registry
 from homeassistant.helpers.event import async_track_time_interval
 
-from .auth.exceptions import InvalidAuthError, MfaRequired, SessionExpiredError
+from .auth.exceptions import AuthError
 from .const import (
     AUTH_METHOD_ORLEN_ID,
     CONF_AUTH_METHOD,
@@ -24,6 +25,8 @@ from .const import (
     ORLEN_SESSION_REFRESH_MINUTES,
 )
 from .PgnigApi import PgnigApi
+from .PgpList import PpgList
+from .runtime import PgnigRuntimeData
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +55,7 @@ async def async_setup_entry(hass, config_entry):
     mfa_enabled = config_entry.data.get(CONF_MFA_ENABLED, True)
     session_data = config_entry.data.get(CONF_ORLEN_SESSION)
     api = PgnigApi(user, password, auth_method, session_data=session_data, mfa_enabled=mfa_enabled)
-    hass.data[DOMAIN][config_entry.entry_id] = api
+    hass.data[DOMAIN][config_entry.entry_id] = await _async_build_runtime_data(hass, api)
 
     await hass.config_entries.async_forward_entry_setups(config_entry, ["sensor", "button"])
 
@@ -99,11 +102,37 @@ async def async_setup_entry(hass, config_entry):
     return True
 
 
+async def _async_build_runtime_data(
+    hass: HomeAssistant, api: PgnigApi
+) -> PgnigRuntimeData:
+    """Authenticate and resolve the meter list before any platform is forwarded.
+
+    ConfigEntryAuthFailed puts the entry into an error state on the integrations
+    page and starts the reauth flow, which is the only way the user is asked to
+    log in again. Everything else is treated as transient so HA retries setup
+    instead of demanding credentials over a dropped connection.
+    """
+
+    def _load() -> PpgList:
+        api.login()
+        return api.meterList()
+
+    try:
+        return PgnigRuntimeData(
+            api=api, meters=await hass.async_add_executor_job(_load)
+        )
+    except AuthError as err:
+        raise ConfigEntryAuthFailed(str(err)) from err
+    except Exception as err:
+        raise ConfigEntryNotReady(f"Could not reach Orlen EBOK: {err}") from err
+
+
 async def _async_refresh_orlen_session(hass: HomeAssistant, config_entry) -> None:
     """Refresh OrlenID cookies/token in the background without MFA."""
-    api = hass.data[DOMAIN].get(config_entry.entry_id)
-    if api is None:
+    runtime = hass.data[DOMAIN].get(config_entry.entry_id)
+    if runtime is None:
         return
+    api = runtime.api
 
     def _refresh() -> tuple[str, dict | None]:
         token = api.refresh_auth_token()
@@ -111,11 +140,11 @@ async def _async_refresh_orlen_session(hass: HomeAssistant, config_entry) -> Non
 
     try:
         token, session = await hass.async_add_executor_job(_refresh)
-    except (MfaRequired, InvalidAuthError, SessionExpiredError) as err:
+    except AuthError as err:
         _LOGGER.warning(
             "OrlenID session expired and requires re-authentication: %s", err
         )
-        hass.async_create_task(hass.config_entries.async_start_reauth(config_entry))
+        config_entry.async_start_reauth(hass)
         return
     except Exception as err:
         _LOGGER.warning("Background OrlenID session refresh failed: %s", err)

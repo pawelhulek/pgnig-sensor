@@ -33,14 +33,10 @@ async def async_setup_entry(
         config_entry: ConfigEntry,
         async_add_entities,
 ):
-    api = hass.data[DOMAIN][config_entry.entry_id]
-    try:
-        pgps = await hass.async_add_executor_job(api.meterList)
-    except Exception as err:
-        _LOGGER.error("Failed to set up PGNiG sensor: %s", err)
-        raise
+    runtime = hass.data[DOMAIN][config_entry.entry_id]
+    api = runtime.api
 
-    for x in pgps.ppg_list:
+    for x in runtime.meters.ppg_list:
         meter_id = x.meter_number
         async_add_entities(
             [PgnigSensor(hass, api, meter_id, x.id_local),
