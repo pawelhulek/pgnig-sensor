@@ -251,3 +251,46 @@ def test_stored_device_id_still_wins():
     )
 
     assert _device_cookie(auth) == "legacy-random-id"
+
+
+def test_interactive_login_drops_stale_cookies_but_keeps_the_device():
+    """Reusing a session must not drag expired auth cookies into a fresh login.
+
+    A restored session that could not be refreshed still holds dead Keycloak
+    cookies. Sending them makes Keycloak land somewhere unexpected, which the
+    login flow reports as a bogus "credentials rejected". The device token has
+    to survive, though, or Orlen stops recognising the device.
+    """
+    OrlenIDAuth = AuthRegistry.get("orlen_id")
+    auth = OrlenIDAuth(
+        "user@example.pl",
+        "pw",
+        session_data={
+            "device_id": "dev-123",
+            "cookies": [
+                {
+                    "name": "KEYCLOAK_SESSION",
+                    "value": "stale",
+                    "domain": "ebok.myorlen.pl",
+                    "path": "/",
+                }
+            ],
+        },
+    )
+    assert auth.session.cookies.get("KEYCLOAK_SESSION") == "stale"
+
+    seen = {}
+
+    def capture_jar():
+        seen["cookies"] = dict(auth.session.cookies)
+        raise RuntimeError("stop before any network call")
+
+    with (
+        patch.object(auth, "_try_restore_session_token", return_value=None),
+        patch.object(auth, "_init_session", side_effect=capture_jar),
+        pytest.raises(RuntimeError),
+    ):
+        auth.login(allow_interactive=True)
+
+    assert "KEYCLOAK_SESSION" not in seen["cookies"]
+    assert seen["cookies"].get("pgnig-ebok-device-token") == "dev-123"

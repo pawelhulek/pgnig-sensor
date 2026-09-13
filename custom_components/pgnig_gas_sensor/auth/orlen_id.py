@@ -235,6 +235,18 @@ class OrlenIDAuth(AuthMethod):
             description="OrlenID OID login",
         )
 
+    def _reset_session_cookies(self) -> None:
+        """Drop stale auth cookies before a credential login, keep the device.
+
+        A restored session that could not be refreshed still holds expired
+        Keycloak cookies. Carrying them into a fresh login makes Keycloak land
+        on an unexpected page, which this flow can only report as a bogus
+        "credentials rejected". The device token is put back so Orlen still
+        recognises the device and need not send another SMS code.
+        """
+        self._session.cookies.clear()
+        self._session.cookies.set("pgnig-ebok-device-token", self._device_id)
+
     def _init_session(self) -> None:
         _LOGGER.debug("Initializing session with GET %s", BASE_URL)
         resp = self._session.get(BASE_URL, timeout=30)
@@ -467,6 +479,7 @@ class OrlenIDAuth(AuthMethod):
             )
 
         _LOGGER.debug("Starting OrlenID login flow for user %s", self.username)
+        self._reset_session_cookies()
         self._init_session()
 
         init_url = f"{BASE_URL}/auth/oid/init-login?api-version=3.0"
