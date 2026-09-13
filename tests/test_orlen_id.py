@@ -216,3 +216,38 @@ def test_try_restore_session_token_silent_sso_failure(auth):
             assert token is None
             assert auth._cached_token == ""
 
+
+
+DEVICE_COOKIE = "pgnig-ebok-device-token"
+
+
+def _device_cookie(auth) -> str:
+    return auth.session.cookies.get(DEVICE_COOKIE)
+
+
+def test_two_logins_for_one_account_present_the_same_device():
+    """Without a stored session, every login used to look like a new device."""
+    OrlenIDAuth = AuthRegistry.get("orlen_id")
+    first = OrlenIDAuth("user@example.pl", "pw")
+    second = OrlenIDAuth("user@example.pl", "pw")
+
+    assert _device_cookie(first) == _device_cookie(second)
+
+
+def test_different_accounts_get_different_devices():
+    OrlenIDAuth = AuthRegistry.get("orlen_id")
+    assert _device_cookie(OrlenIDAuth("a@example.pl", "pw")) != _device_cookie(
+        OrlenIDAuth("b@example.pl", "pw")
+    )
+
+
+def test_stored_device_id_still_wins():
+    """Existing installs keep the device Orlen has already seen and trusted."""
+    OrlenIDAuth = AuthRegistry.get("orlen_id")
+    auth = OrlenIDAuth(
+        "user@example.pl",
+        "pw",
+        session_data={"device_id": "legacy-random-id", "cookies": []},
+    )
+
+    assert _device_cookie(auth) == "legacy-random-id"

@@ -14,10 +14,21 @@ def test_device_id_format():
     assert re.match(r"^[0-9a-f]{32}$", result)
 
 
-def test_device_id_is_random():
-    a = device_id("same@user.com")
-    b = device_id("same@user.com")
-    assert a != b
+def test_device_id_is_stable_for_one_account():
+    """Orlen remembers devices by this token and SMS-challenges unknown ones.
+
+    A fresh value per call made every login look like a new device, so MFA was
+    demanded every time and the integration could never recover on its own.
+    """
+    assert device_id("same@user.com") == device_id("same@user.com")
+
+
+def test_device_id_differs_between_accounts():
+    assert device_id("a@user.com") != device_id("b@user.com")
+
+
+def test_device_id_does_not_leak_the_username():
+    assert "same@user.com" not in device_id("same@user.com")
 
 
 def test_auth_registry_contains_registered_methods():

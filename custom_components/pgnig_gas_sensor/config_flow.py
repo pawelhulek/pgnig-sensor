@@ -77,8 +77,15 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
         username: str,
         password: str,
         auth_method: str,
+        session_data: dict[str, Any] | None = None,
     ) -> None:
-        api = PgnigApi(username, password, auth_method)
+        """Log in, reusing an existing session when there is one.
+
+        The stored session carries the device token Orlen recognises. Starting
+        from scratch looks like a new device and draws an SMS challenge every
+        time, so re-auth and reconfigure hand their entry's session back in.
+        """
+        api = PgnigApi(username, password, auth_method, session_data=session_data)
         await self.hass.async_add_executor_job(
             lambda: api.login(allow_interactive=True)
         )
@@ -308,7 +315,10 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
             username = user_input[CONF_USERNAME]
             password = user_input[CONF_PASSWORD]
             try:
-                await self._perform_login(username, password, auth_method)
+                await self._perform_login(
+                    username, password, auth_method,
+                    session_data=config_entry.data.get(CONF_ORLEN_SESSION),
+                )
                 data = self._with_orlen_session(
                     {
                         **config_entry.data,
@@ -369,7 +379,10 @@ class PGNIGGasConfigFlow(ConfigFlow, domain=DOMAIN):
             username = user_input[CONF_USERNAME]
             password = user_input[CONF_PASSWORD]
             try:
-                await self._perform_login(username, password, auth_method)
+                await self._perform_login(
+                    username, password, auth_method,
+                    session_data=config_entry.data.get(CONF_ORLEN_SESSION),
+                )
                 data = self._with_orlen_session(
                     {
                         CONF_USERNAME: username,

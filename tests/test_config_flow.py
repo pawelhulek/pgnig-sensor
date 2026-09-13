@@ -311,3 +311,49 @@ async def test_import_aborts(hass: HomeAssistant):
     )
     assert result["type"] == data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "one_instance_at_a_time_please"
+
+
+async def test_reauth_reuses_the_stored_session(hass: HomeAssistant):
+    """Re-login must carry the existing session, not start from scratch.
+
+    The stored session holds the device token Orlen recognises. Logging in
+    without it looks like a new device and triggers an SMS challenge every
+    time; carrying it lets a still-valid session be restored with no MFA.
+    """
+    stored = {
+        "device_id": "dev-123",
+        "cookies": [{"name": "KEYCLOAK_SESSION", "value": "abc"}],
+        "token": "tok",
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "user@example.pl",
+            CONF_PASSWORD: "secret",
+            CONF_AUTH_METHOD: AUTH_METHOD_ORLEN_ID,
+            CONF_ORLEN_SESSION: stored,
+        },
+        entry_id="reauth_session_entry",
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.pgnig_gas_sensor.config_flow.PgnigApi"
+    ) as mock_api_class:
+        mock_api_class.return_value = MagicMock()
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_REAUTH,
+                "entry_id": entry.entry_id,
+            },
+        )
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_USERNAME: "user@example.pl",
+                CONF_PASSWORD: "secret",
+            },
+        )
+
+    assert mock_api_class.call_args.kwargs.get("session_data") == stored
