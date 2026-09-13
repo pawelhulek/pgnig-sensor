@@ -1,7 +1,7 @@
 """Authentication method abstraction for Orlen EBOK."""
 from __future__ import annotations
 
-import secrets
+import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
@@ -59,7 +59,20 @@ class AuthRegistry:
 
 
 def device_id(username: str) -> str:
-    return secrets.token_hex(16)
+    """Stable per-account device token.
+
+    Orlen remembers a device by the `pgnig-ebok-device-token` cookie and only
+    challenges an unrecognised one with an SMS code. This used to return
+    `secrets.token_hex(16)`, ignoring `username`, so every login that started
+    without a stored session looked like a brand new device: Orlen demanded MFA
+    every time, `mfa_enabled` was always recorded as True, and the integration
+    could never restore a session on its own once the SSO session expired.
+
+    Derived from the username so it survives re-authentication, and hashed so
+    the account name is not sent as the token. Same 32-hex-character shape as
+    the value it replaces.
+    """
+    return hashlib.sha256(f"pgnig-ebok:{username}".encode()).hexdigest()[:32]
 
 
 from .api_login import ApiLoginAuth  # noqa: E402
