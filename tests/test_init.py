@@ -147,15 +147,37 @@ async def test_session_refresh_is_scheduled_only_for_orlen_id(
 async def test_background_refresh_starts_reauth_flow(
     hass: HomeAssistant, mock_api, mock_meters, error
 ):
-    """The regression guard: the expired session must raise a reauth flow."""
+    """The regression guard: a session with nothing left must raise a reauth flow."""
     entry = add_entry(hass)
     mock_api.refresh_auth_token.side_effect = error
+    mock_api.has_token.return_value = False
     hass.data[DOMAIN] = {entry.entry_id: runtime_for(hass, mock_api, mock_meters)}
 
     await _async_refresh_orlen_session(hass, entry)
     await hass.async_block_till_done()
 
     assert reauth_sources(hass) == ["reauth"]
+
+
+@pytest.mark.parametrize("error", AUTH_ERRORS, ids=lambda e: type(e).__name__)
+async def test_background_refresh_keeps_quiet_while_a_token_survives(
+    hass: HomeAssistant, mock_api, mock_meters, error
+):
+    """A failed renewal is not proof the token stopped working.
+
+    Issue #131: every refresh tick escalated straight to reauth, and for an
+    account with 2FA each escalation is an SMS. The next poll still surfaces a
+    token that has genuinely expired, through ConfigEntryAuthFailed.
+    """
+    entry = add_entry(hass)
+    mock_api.refresh_auth_token.side_effect = error
+    mock_api.has_token.return_value = True
+    hass.data[DOMAIN] = {entry.entry_id: runtime_for(hass, mock_api, mock_meters)}
+
+    await _async_refresh_orlen_session(hass, entry)
+    await hass.async_block_till_done()
+
+    assert reauth_sources(hass) == []
 
 
 async def test_background_refresh_stores_new_session(

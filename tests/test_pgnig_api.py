@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from custom_components.pgnig_gas_sensor.auth.exceptions import SessionExpiredError
 from custom_components.pgnig_gas_sensor.PgnigApi import PgnigApi
 
 
@@ -196,3 +197,48 @@ def test_reading_for_meter_raises_after_repeated_401(api, mock_auth):
 
     assert mock_auth.login.call_count == 2
     mock_auth.invalidate_token.assert_called_once()
+
+
+# --- token renewal (issue #131) ---------------------------------------
+
+
+def test_refresh_auth_token_returns_the_new_token(api, mock_auth):
+    mock_auth.cached_token = "old-token"
+    mock_auth.login.return_value = "new-token"
+
+    assert api.refresh_auth_token() == "new-token"
+    mock_auth.invalidate_token.assert_called_once()
+    mock_auth.restore_token.assert_not_called()
+
+
+def test_refresh_auth_token_keeps_the_old_token_when_renewal_fails(api, mock_auth):
+    """A failed renewal must not cost us a token that may still work.
+
+    Dropping it turned one failed refresh into a reauth prompt, which for an
+    account with 2FA means an SMS every refresh interval.
+    """
+    mock_auth.cached_token = "old-token"
+    mock_auth.login.side_effect = SessionExpiredError("session expired")
+
+    with pytest.raises(SessionExpiredError):
+        api.refresh_auth_token()
+
+    mock_auth.restore_token.assert_called_once_with("old-token")
+
+
+def test_refresh_auth_token_restores_nothing_when_there_was_no_token(api, mock_auth):
+    mock_auth.cached_token = ""
+    mock_auth.login.side_effect = SessionExpiredError("session expired")
+
+    with pytest.raises(SessionExpiredError):
+        api.refresh_auth_token()
+
+    mock_auth.restore_token.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("cached", "expected"), [("a-token", True), ("", False)]
+)
+def test_has_token_reports_whether_a_token_is_held(api, mock_auth, cached, expected):
+    mock_auth.cached_token = cached
+    assert api.has_token() is expected
