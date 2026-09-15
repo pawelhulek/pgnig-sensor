@@ -127,7 +127,12 @@ async def _async_build_runtime_data(
 
 
 async def _async_refresh_orlen_session(hass: HomeAssistant, config_entry) -> None:
-    """Refresh OrlenID cookies/token in the background without MFA."""
+    """Refresh OrlenID cookies/token in the background without MFA.
+
+    Runs often enough that Orlen never sees the session go idle. Escalating to
+    a reauth flow is reserved for the case where no usable token is left,
+    because for an account with 2FA that escalation costs the user an SMS.
+    """
     runtime = hass.data[DOMAIN].get(config_entry.entry_id)
     if runtime is None:
         return
@@ -140,6 +145,17 @@ async def _async_refresh_orlen_session(hass: HomeAssistant, config_entry) -> Non
     try:
         token, session = await hass.async_add_executor_job(_refresh)
     except AuthError as err:
+        if api.has_token():
+            # The renewal failed but the token it was renewing survived, so
+            # there is nothing to ask the user for yet. A token that really has
+            # stopped working surfaces as a 401 on the next poll, and the
+            # coordinator turns that into ConfigEntryAuthFailed.
+            _LOGGER.warning(
+                "OrlenID session refresh failed; keeping the token already held "
+                "and retrying on the next interval: %s",
+                err,
+            )
+            return
         _LOGGER.warning(
             "OrlenID session expired and requires re-authentication: %s", err
         )

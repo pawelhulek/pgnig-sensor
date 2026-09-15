@@ -17,6 +17,18 @@ class AuthMethodInfo:
 
 
 class AuthMethod(ABC):
+    #: Last token handed out by login(); subclasses set this when they fetch one.
+    _cached_token: str = ""
+
+    @property
+    def cached_token(self) -> str:
+        """The token currently held, or "" when there is none."""
+        return self._cached_token
+
+    def restore_token(self, token: str) -> None:
+        """Put back a token that was dropped for a refresh that then failed."""
+        self._cached_token = token
+
     @property
     @abstractmethod
     def info(self) -> AuthMethodInfo:

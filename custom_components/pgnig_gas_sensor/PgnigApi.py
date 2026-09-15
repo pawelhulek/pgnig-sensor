@@ -55,11 +55,31 @@ class PgnigApi:
     def invalidate_token(self) -> None:
         self._auth.invalidate_token()
 
+    def has_token(self) -> bool:
+        """Whether a token is held that API calls can still be attempted with."""
+        return bool(self._auth.cached_token)
+
     def refresh_auth_token(self) -> str:
-        """Refresh EBOK API token using the current HTTP session (no MFA)."""
+        """Renew the EBOK API token, keeping the current one if renewal fails.
+
+        The renewal runs on a timer, so a failure is not evidence that the token
+        in hand has stopped working - the server-side session it is renewed
+        through expires on its own schedule. Dropping the token first turned one
+        failed renewal into a re-authentication prompt, and for accounts with
+        2FA that means an SMS.
+        """
         with self._login_lock:
+            previous = self._auth.cached_token
             self.invalidate_token()
-            return self.login(allow_interactive=False)
+            try:
+                return self.login(allow_interactive=False)
+            except Exception:
+                if previous:
+                    self._auth.restore_token(previous)
+                    _LOGGER.debug(
+                        "Token renewal failed; keeping the token already held"
+                    )
+                raise
 
     def _get_authenticated(self, url: str, operation: str) -> requests.Response:
         last_response = None
