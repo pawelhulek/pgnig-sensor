@@ -430,34 +430,118 @@ class OrlenIDAuth(AuthMethod):
             "token": self._cached_token,
         }
 
+    def _silent_sso_refresh(self) -> str | None:
+        """Mint a new EBOK session from a still-valid OrlenID SSO session.
+
+        The EBOK session idles out long before the OrlenID SSO session does.
+        While the SSO session lives, replaying the OIDC authorize request hands
+        back a fresh EBOK session with no password and no SMS - the browser
+        does the same thing when you reopen the site. Only once the SSO session
+        has gone too is a credential login unavoidable.
+
+        Whether it worked is decided by asking for a token, not by matching the
+        landing URL: the callback legitimately lands on /home, on the site root
+        or on a lightweight redirect page, and only the token says whether the
+        session actually took.
+        """
+        init_url = f"{BASE_URL}/auth/oid/init-login?api-version=3.0"
+        init_data = {
+            "DeviceId": self._device_id,
+            "DeviceType": "Web",
+            "DeviceName": "HomeAssistant wersja: 0.1",
+            "LightweightRedirectUrl": f"{BASE_URL}/?show=modal",
+            "FinalizeRegistrationRedirectUrl": f"{BASE_URL}/aktywuj-oid/",
+        }
+
+        resp_init = self._session.post(init_url, json=init_data, timeout=30)
+        if not resp_init.ok:
+            _LOGGER.debug(
+                "Silent SSO refresh: init-login returned %s", resp_init.status_code
+            )
+            return None
+        redirect_url = resp_init.json().get("RedirectUrl")
+        if not redirect_url:
+            _LOGGER.debug("Silent SSO refresh: init-login response carried no RedirectUrl")
+            return None
+
+        resp_sso = self._session.get(redirect_url, timeout=30, allow_redirects=True)
+        _LOGGER.debug(
+            "Silent SSO refresh: authorize landed on %s (status %s)",
+            resp_sso.url,
+            resp_sso.status_code,
+        )
+
+        if _is_login_page(resp_sso.text) or _looks_like_mfa_challenge(resp_sso):
+            _LOGGER.debug(
+                "Silent SSO refresh: OrlenID wants a login, the SSO session is gone too"
+            )
+            return None
+
+        if f"{BASE_URL}/home" not in resp_sso.url and not _is_keycloak_url(resp_sso.url):
+            # Same landing-anywhere case _complete_oidc_session already handles.
+            resp_sso = self._session.get(
+                f"{BASE_URL}/home",
+                headers={"Referer": resp_sso.url},
+                timeout=30,
+                allow_redirects=True,
+            )
+            _LOGGER.debug("Silent SSO refresh: followed through to %s", resp_sso.url)
+
+        try:
+            token = self._fetch_auth_token()
+        except RuntimeError as err:
+            _LOGGER.debug("Silent SSO refresh: token still refused (%s)", err)
+            return None
+
+        _LOGGER.debug("Silent SSO refresh successful")
+        return token
+
+    def refresh_session(self) -> str:
+        """Keep both sessions warm and hand back a current token.
+
+        The EBOK session and the OrlenID SSO session expire independently, and
+        nothing else here ever talks to OrlenID - the token refresh only calls
+        ebok.myorlen.pl. So the SSO session idled out on its own (~30 minutes,
+        Keycloak's default) after every login, long before anything needed it,
+        which is why the silent refresh never once succeeded in production.
+
+        Replaying the authorize request resets that idle timer and mints a
+        fresh EBOK session in the same round-trip, which is exactly what a
+        browser left open on the site does.
+        """
+        self._cached_token = ""
+        token = self._silent_sso_refresh()
+        if token:
+            return token
+
+        _LOGGER.debug("SSO keep-alive did not renew; trying the EBOK token directly")
+        try:
+            return self._fetch_auth_token()
+        except RuntimeError as err:
+            raise SessionExpiredError(
+                "OrlenID session expired; re-authenticate in Home Assistant"
+            ) from err
+
     def _try_restore_session_token(self) -> str | None:
         if not list(self._session.cookies.keys()):
             return None
         try:
             return self._fetch_auth_token()
         except RuntimeError:
-            _LOGGER.debug("Stored OrlenID session invalid, attempting silent SSO refresh...")
-            try:
-                init_url = f"{BASE_URL}/auth/oid/init-login?api-version=3.0"
-                init_data = {
-                    "DeviceId": self._device_id,
-                    "DeviceType": "Web",
-                    "DeviceName": "HomeAssistant wersja: 0.1",
-                    "LightweightRedirectUrl": f"{BASE_URL}/?show=modal",
-                    "FinalizeRegistrationRedirectUrl": f"{BASE_URL}/aktywuj-oid/",
-                }
-                resp_init = self._session.post(init_url, json=init_data, timeout=30)
-                if resp_init.ok and "RedirectUrl" in resp_init.json():
-                    redirect_url = resp_init.json()["RedirectUrl"]
-                    resp_sso = self._session.get(redirect_url, timeout=30, allow_redirects=True)
-                    if f"{BASE_URL}/home" in resp_sso.url:
-                        _LOGGER.debug("Silent SSO refresh successful")
-                        return self._fetch_auth_token()
-            except Exception as e:
-                _LOGGER.debug("Silent SSO refresh failed: %s", e)
-                
-            self._cached_token = ""
-            return None
+            _LOGGER.debug(
+                "Stored OrlenID session invalid, attempting silent SSO refresh..."
+            )
+
+        try:
+            token = self._silent_sso_refresh()
+        except Exception as err:  # noqa: BLE001 - never let this block a login
+            _LOGGER.debug("Silent SSO refresh failed: %s", err)
+            token = None
+
+        if token:
+            return token
+        self._cached_token = ""
+        return None
 
     def invalidate_token(self) -> None:
         """Drop in-memory API token so the next login() fetches a fresh one."""

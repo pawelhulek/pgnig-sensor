@@ -72,6 +72,8 @@ class PgnigApi:
             previous = self._auth.cached_token
             self.invalidate_token()
             try:
+                if isinstance(self._auth, OrlenIDAuth):
+                    return self._auth.refresh_session()
                 return self.login(allow_interactive=False)
             except Exception:
                 if previous:
