@@ -496,6 +496,32 @@ class OrlenIDAuth(AuthMethod):
         _LOGGER.debug("Silent SSO refresh successful")
         return token
 
+    def refresh_session(self) -> str:
+        """Keep both sessions warm and hand back a current token.
+
+        The EBOK session and the OrlenID SSO session expire independently, and
+        nothing else here ever talks to OrlenID - the token refresh only calls
+        ebok.myorlen.pl. So the SSO session idled out on its own (~30 minutes,
+        Keycloak's default) after every login, long before anything needed it,
+        which is why the silent refresh never once succeeded in production.
+
+        Replaying the authorize request resets that idle timer and mints a
+        fresh EBOK session in the same round-trip, which is exactly what a
+        browser left open on the site does.
+        """
+        self._cached_token = ""
+        token = self._silent_sso_refresh()
+        if token:
+            return token
+
+        _LOGGER.debug("SSO keep-alive did not renew; trying the EBOK token directly")
+        try:
+            return self._fetch_auth_token()
+        except RuntimeError as err:
+            raise SessionExpiredError(
+                "OrlenID session expired; re-authenticate in Home Assistant"
+            ) from err
+
     def _try_restore_session_token(self) -> str | None:
         if not list(self._session.cookies.keys()):
             return None

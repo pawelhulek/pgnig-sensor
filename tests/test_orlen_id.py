@@ -382,3 +382,41 @@ def test_interactive_login_drops_stale_cookies_but_keeps_the_device():
 
     assert "KEYCLOAK_SESSION" not in seen["cookies"]
     assert seen["cookies"].get("pgnig-ebok-device-token") == "dev-123"
+
+
+# --- SSO keep-alive ----------------------------------------------------
+
+
+def test_refresh_session_keeps_the_sso_session_warm(auth):
+    """The periodic refresh must talk to OrlenID, not only to EBOK.
+
+    Nothing else in the integration ever calls OrlenID, so without this the
+    SSO session idles out ~30 minutes after every login and the silent refresh
+    can never succeed when it is finally needed.
+    """
+    with patch.object(auth, "_silent_sso_refresh", return_value="warm") as silent:
+        with patch.object(auth, "_fetch_auth_token") as fetch:
+            assert auth.refresh_session() == "warm"
+            silent.assert_called_once()
+            fetch.assert_not_called()
+
+
+def test_refresh_session_falls_back_to_the_ebok_token(auth):
+    """A dead SSO session must not cost us a working EBOK session."""
+    with patch.object(auth, "_silent_sso_refresh", return_value=None):
+        with patch.object(auth, "_fetch_auth_token", return_value="ebok-token"):
+            assert auth.refresh_session() == "ebok-token"
+
+
+def test_refresh_session_reports_expiry_when_both_are_gone(auth):
+    with patch.object(auth, "_silent_sso_refresh", return_value=None):
+        with patch.object(auth, "_fetch_auth_token", side_effect=RuntimeError("401")):
+            with pytest.raises(SessionExpiredError):
+                auth.refresh_session()
+
+
+def test_refresh_session_drops_the_cached_token_before_renewing(auth):
+    auth._cached_token = "stale"
+    with patch.object(auth, "_silent_sso_refresh", return_value="warm"):
+        auth.refresh_session()
+    assert auth._cached_token != "stale"
