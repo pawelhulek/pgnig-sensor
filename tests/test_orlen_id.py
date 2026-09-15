@@ -200,21 +200,109 @@ def test_try_restore_session_token_silent_sso_success(auth):
 
 
 def test_try_restore_session_token_silent_sso_failure(auth):
+    """Giving up is decided by the token still being refused, not by the URL."""
     auth._session.cookies.set("dummy", "val")
     with patch.object(auth, "_fetch_auth_token", side_effect=RuntimeError("Expired")):
         with patch.object(auth, "_session") as mock_session:
             mock_session.cookies.keys.return_value = ["dummy"]
-            
+
             init_resp = _mock_resp({"RedirectUrl": "https://sso.redirect"}, status_code=200)
             sso_resp = _mock_resp(status_code=200)
-            sso_resp.url = "https://ebok.myorlen.pl/login"  # Not home, so failed
-            
+            sso_resp.url = "https://ebok.myorlen.pl/"
+
             mock_session.post.return_value = init_resp
             mock_session.get.return_value = sso_resp
-            
+
             token = auth._try_restore_session_token()
             assert token is None
             assert auth._cached_token == ""
+
+
+# --- silent SSO recovery (issue #131 follow-up) ------------------------
+
+OID_LOGIN_PAGE = """
+<form id="kc-form-login" action="https://oid-ws.orlen.pl/realms/oid/login-actions/authenticate">
+  <input id="username" name="username" type="text" />
+  <input id="password" name="password" type="password" />
+</form>
+"""
+
+
+def _silent_sso_session(auth, *, landing_url: str, landing_html: str = ""):
+    """Mock session where init-login works and the callback lands somewhere."""
+    mock_session = patch.object(auth, "_session").start()
+    mock_session.cookies.keys.return_value = ["dummy"]
+    mock_session.post.return_value = _mock_resp(
+        {"RedirectUrl": "https://oid-ws.orlen.pl/realms/oid/protocol/openid-connect/auth"},
+        status_code=200,
+    )
+    landing = _mock_resp(status_code=200, text=landing_html)
+    landing.url = landing_url
+    mock_session.get.return_value = landing
+    return mock_session
+
+
+def test_silent_sso_recovers_when_callback_lands_off_home(auth):
+    """The regression: the callback does not reliably land on /home.
+
+    Production logged 39 silent refresh attempts, 0 successes and 0 exceptions -
+    it matched the landing URL against /home and silently gave up, so every
+    lapsed session escalated to a full credential login and an SMS.
+    """
+    auth._session.cookies.set("dummy", "val")
+    try:
+        _silent_sso_session(auth, landing_url="https://ebok.myorlen.pl/?show=modal")
+        with patch.object(
+            auth, "_fetch_auth_token", side_effect=[RuntimeError("Expired"), "recovered"]
+        ):
+            assert auth._try_restore_session_token() == "recovered"
+    finally:
+        patch.stopall()
+
+
+def test_silent_sso_gives_up_without_logging_in_when_sso_session_is_gone(auth):
+    """A login page means the SSO session died too - do not try the token."""
+    auth._session.cookies.set("dummy", "val")
+    try:
+        _silent_sso_session(
+            auth,
+            landing_url="https://oid-ws.orlen.pl/realms/oid/protocol/openid-connect/auth",
+            landing_html=OID_LOGIN_PAGE,
+        )
+        with patch.object(
+            auth, "_fetch_auth_token", side_effect=RuntimeError("Expired")
+        ) as fetch:
+            assert auth._try_restore_session_token() is None
+            assert fetch.call_count == 1  # only the initial probe
+    finally:
+        patch.stopall()
+
+
+@pytest.mark.parametrize(
+    ("init_json", "status"),
+    [({"RedirectUrl": "https://sso"}, 500), ({}, 200)],
+    ids=["init-login-error", "no-redirect-url"],
+)
+def test_silent_sso_gives_up_when_init_login_is_unusable(auth, init_json, status):
+    auth._session.cookies.set("dummy", "val")
+    with patch.object(auth, "_fetch_auth_token", side_effect=RuntimeError("Expired")):
+        with patch.object(auth, "_session") as mock_session:
+            mock_session.cookies.keys.return_value = ["dummy"]
+            mock_session.post.return_value = _mock_resp(init_json, status_code=status)
+
+            assert auth._try_restore_session_token() is None
+            mock_session.get.assert_not_called()
+
+
+def test_silent_sso_survives_an_unexpected_error(auth):
+    """Nothing here may stop the caller falling back to a credential login."""
+    auth._session.cookies.set("dummy", "val")
+    with patch.object(auth, "_fetch_auth_token", side_effect=RuntimeError("Expired")):
+        with patch.object(auth, "_session") as mock_session:
+            mock_session.cookies.keys.return_value = ["dummy"]
+            mock_session.post.side_effect = ValueError("boom")
+
+            assert auth._try_restore_session_token() is None
 
 
 
