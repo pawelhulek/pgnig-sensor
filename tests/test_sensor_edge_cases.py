@@ -11,6 +11,7 @@ from custom_components.pgnig_gas_sensor.sensor import (
     PgnigCostTrackingSensor,
     PgnigInvoiceSensor,
     PgnigSensor,
+    entities_for_meters,
 )
 
 from .builders import build_stub_coordinator, make_invoice, make_reading
@@ -145,6 +146,29 @@ async def test_meter_sensor_exposes_reading_metadata(hass: HomeAssistant):
     assert attrs["reading_status"] == "Zaakceptowany"
     assert attrs["reading_date"] == datetime(2026, 9, 1, 10, 30, tzinfo=UTC)
     assert attrs["reading_date_local"] == datetime(2026, 9, 1, 12, 30)
+
+
+async def test_meter_sensor_exposes_tariff(hass: HomeAssistant):
+    """The meter list carries the tariff symbol; surface it."""
+    coordinator = build_stub_coordinator(hass)
+    sensor = PgnigSensor(coordinator, "M1", 1, tariff="W-3.6")
+    assert sensor.extra_state_attributes["tariff"] == "W-3.6"
+
+
+async def test_meter_sensor_omits_tariff_when_unknown(hass: HomeAssistant):
+    """No tariff means no key, not an empty one."""
+    coordinator = build_stub_coordinator(hass)
+    assert "tariff" not in PgnigSensor(coordinator, "M1", 1).extra_state_attributes
+
+
+async def test_setup_passes_the_tariff_from_the_meter_list(hass: HomeAssistant):
+    """The symbol must survive the trip from get-ppg-list to the entity."""
+    coordinator = build_stub_coordinator(hass)
+    meter_sensors = [
+        entity for entity in entities_for_meters(coordinator)
+        if isinstance(entity, PgnigSensor)
+    ]
+    assert [sensor.tariff for sensor in meter_sensors] == ["T1"]
 
 
 async def test_invoice_sensor_attributes(hass: HomeAssistant):
