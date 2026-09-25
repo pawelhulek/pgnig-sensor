@@ -16,6 +16,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pgnig_gas_sensor import (
     _async_refresh_orlen_session,
+    _async_register_add_reading,
     async_setup_entry,
     async_unload_entry,
 )
@@ -30,6 +31,8 @@ from custom_components.pgnig_gas_sensor.const import (
     CONF_ORLEN_SESSION,
     DEFAULT_AUTH_METHOD,
     DOMAIN,
+    SERVICE_ADD_READING,
+    SERVICE_REFRESH,
 )
 from custom_components.pgnig_gas_sensor.runtime import PgnigRuntimeData
 
@@ -117,6 +120,35 @@ async def test_setup_entry_stores_runtime_data(hass: HomeAssistant, mock_api):
     assert runtime.api is mock_api
     assert [meter.meter_number for meter in runtime.meters.ppg_list] == ["METER1"]
     mock_api.meterList.assert_called_once()
+
+
+async def test_setup_entry_registers_both_services(hass: HomeAssistant, mock_api):
+    """Wiring guard: add_reading went missing from master once already (#107)."""
+    entry = add_entry(hass, auth_method=DEFAULT_AUTH_METHOD, setting_up=True)
+    with (
+        patch("custom_components.pgnig_gas_sensor.PgnigApi", return_value=mock_api),
+        patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()),
+    ):
+        await async_setup_entry(hass, entry)
+
+    assert hass.services.has_service(DOMAIN, SERVICE_REFRESH)
+    assert hass.services.has_service(DOMAIN, SERVICE_ADD_READING)
+
+
+async def test_unload_removes_add_reading_with_the_last_entry(
+    hass: HomeAssistant, mock_api, mock_meters
+):
+    entry = add_entry(hass, auth_method=DEFAULT_AUTH_METHOD)
+    hass.data[DOMAIN] = {entry.entry_id: runtime_for(hass, mock_api, mock_meters)}
+    _async_register_add_reading(hass)
+    assert hass.services.has_service(DOMAIN, SERVICE_ADD_READING)
+
+    with patch.object(
+        hass.config_entries, "async_forward_entry_unload", AsyncMock(return_value=True)
+    ):
+        await async_unload_entry(hass, entry)
+
+    assert not hass.services.has_service(DOMAIN, SERVICE_ADD_READING)
 
 
 @pytest.mark.parametrize(
