@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pgnig_gas_sensor import (
@@ -298,6 +299,37 @@ async def test_refresh_service_is_removed_on_unload(hass: HomeAssistant, mock_ap
 # --- end to end -------------------------------------------------------
 
 
+async def test_existing_long_entity_id_is_preserved(
+    hass: HomeAssistant, mock_api, entity_registry: er.EntityRegistry
+):
+    """Existing installs keep their registered entity id after the naming change."""
+    entry = add_entry(hass, auth_method=DEFAULT_AUTH_METHOD)
+    old_entity_id = (
+        "sensor.orlen_gas_meter_id_meter1_orlen_gas_sensor_meter1_1"
+    )
+    existing = entity_registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "pgnig_sensorMETER1_1",
+        suggested_object_id="legacy_meter_reading",
+        config_entry=entry,
+    )
+    entity_registry.async_update_entity(
+        existing.entity_id,
+        new_entity_id=old_entity_id,
+    )
+
+    with patch("custom_components.pgnig_gas_sensor.PgnigApi", return_value=mock_api):
+        assert await hass.config_entries.async_setup(entry.entry_id) is True
+        await hass.async_block_till_done()
+
+    assert hass.states.get(old_entity_id) is not None
+    assert hass.states.get("sensor.orlen_gas_meter_id_meter1_meter_reading") is None
+
+    assert await hass.config_entries.async_unload(entry.entry_id) is True
+    await hass.async_block_till_done()
+
+
 async def test_entities_are_created_when_home_assistant_loads_the_entry(
     hass: HomeAssistant, mock_api
 ):
@@ -309,12 +341,16 @@ async def test_entities_are_created_when_home_assistant_loads_the_entry(
         await hass.async_block_till_done()
 
     sensors = hass.states.async_entity_ids("sensor")
-    assert len(sensors) == 3, sensors
+    assert set(sensors) == {
+        "sensor.orlen_gas_meter_id_meter1_meter_reading",
+        "sensor.orlen_gas_meter_id_meter1_unpaid_invoices",
+        "sensor.orlen_gas_meter_id_meter1_unit_cost",
+    }
     assert len(hass.states.async_entity_ids("button")) == 1
 
     # the meter reading came from the coordinator's first poll, not an entity call
     meter_state = hass.states.get(
-        next(s for s in sensors if "cost" not in s and "invoice" not in s)
+        "sensor.orlen_gas_meter_id_meter1_meter_reading"
     )
     assert meter_state.state == "100"
 
