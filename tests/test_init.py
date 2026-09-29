@@ -309,12 +309,16 @@ async def test_entities_are_created_when_home_assistant_loads_the_entry(
         await hass.async_block_till_done()
 
     sensors = hass.states.async_entity_ids("sensor")
-    assert len(sensors) == 3, sensors
+    assert set(sensors) == {
+        "sensor.orlen_gas_meter_id_meter1_meter_reading",
+        "sensor.orlen_gas_meter_id_meter1_unpaid_invoices",
+        "sensor.orlen_gas_meter_id_meter1_unit_cost",
+    }
     assert len(hass.states.async_entity_ids("button")) == 1
 
     # the meter reading came from the coordinator's first poll, not an entity call
     meter_state = hass.states.get(
-        next(s for s in sensors if "cost" not in s and "invoice" not in s)
+        "sensor.orlen_gas_meter_id_meter1_meter_reading"
     )
     assert meter_state.state == "100"
 
