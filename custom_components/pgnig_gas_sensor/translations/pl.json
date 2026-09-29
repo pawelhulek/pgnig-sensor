@@ -56,5 +56,18 @@
       "no_config_entry": "Nie znaleziono wpisu konfiguracji",
       "one_instance_at_a_time_please": "Dozwolona jest tylko jedna instancja"
     }
+  },
+  "entity": {
+    "sensor": {
+      "meter_reading": {
+        "name": "Odczyt licznika"
+      },
+      "unpaid_invoices": {
+        "name": "Niezapłacone faktury"
+      },
+      "unit_cost": {
+        "name": "Koszt jednostkowy"
+      }
+    }
   }
 }

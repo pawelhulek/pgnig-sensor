@@ -37,16 +37,21 @@ async def test_unique_id_format(hass: HomeAssistant, sensor_class, expected):
 
 
 @pytest.mark.parametrize(
-    ("sensor_class", "expected"),
+    ("sensor_class", "translation_key"),
     [
-        (PgnigSensor, "Orlen Gas Sensor M1 1"),
-        (PgnigInvoiceSensor, "Orlen Gas Invoice Sensor M1 1"),
-        (PgnigCostTrackingSensor, "Orlen Gas Cost Tracking Sensor M1 1"),
+        (PgnigSensor, "meter_reading"),
+        (PgnigInvoiceSensor, "unpaid_invoices"),
+        (PgnigCostTrackingSensor, "unit_cost"),
     ],
 )
-async def test_name_format(hass: HomeAssistant, sensor_class, expected):
+async def test_has_entity_name_uses_short_role(
+    hass: HomeAssistant, sensor_class, translation_key
+):
+    """Entity name is the role only; the device supplies the meter id (#119)."""
     coordinator = build_stub_coordinator(hass)
-    assert sensor_class(coordinator, "M1", 1).name == expected
+    sensor = sensor_class(coordinator, "M1", 1)
+    assert sensor.has_entity_name is True
+    assert sensor.translation_key == translation_key
 
 
 @pytest.mark.parametrize("sensor_class", SENSOR_CLASSES)

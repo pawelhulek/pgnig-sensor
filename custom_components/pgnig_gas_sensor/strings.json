@@ -56,5 +56,18 @@
       "no_config_entry": "No configuration entry found",
       "one_instance_at_a_time_please": "Only one instance is allowed"
     }
+  },
+  "entity": {
+    "sensor": {
+      "meter_reading": {
+        "name": "Meter reading"
+      },
+      "unpaid_invoices": {
+        "name": "Unpaid invoices"
+      },
+      "unit_cost": {
+        "name": "Unit cost"
+      }
+    }
   }
 }
