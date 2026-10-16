@@ -46,6 +46,43 @@ As a attributes the sensor is also providing due date, amount to pay, used wear 
 The sensor is tracking cost from the latest invoice. 
 It divides amount to be paid by wear in KWH. Can be used in energy dashboard to track the cost.
 
+## Services
+
+### `pgnig_gas_sensor.refresh`
+
+Forces an immediate update of every sensor belonging to the integration.
+
+### `pgnig_gas_sensor.add_reading`
+
+Sends a meter reading to Orlen EBOK — the automation equivalent of filling in
+the "podaj odczyt" form on the website. Orlen only accepts readings inside the
+reporting window for the meter; outside it, the call fails with the same error
+the website shows.
+
+```yaml
+action: pgnig_gas_sensor.add_reading
+data:
+  meter_id: "12345678"          # the ID shown in the device name
+  value: 1234                   # meter state in m³
+  # date: "2026-08-08"          # optional, defaults to today
+  # consent_meter_reset: true   # only when the meter was replaced / rolled over
+  # config_entry_id: ...        # only with more than one Orlen account
+```
+
+The service returns the accepted reading, so it can be used with
+`response_variable`:
+
+```yaml
+action: pgnig_gas_sensor.add_reading
+data:
+  meter_id: "12345678"
+  value: "{{ states('sensor.gas_meter') | round(0) }}"
+response_variable: submitted
+```
+
+`submitted` then holds `meter_id`, `value`, `added_at_utc` and
+`can_be_cancelled`.
+
 ### Running tests
 
 ```bash

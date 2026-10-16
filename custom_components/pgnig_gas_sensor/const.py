@@ -12,3 +12,12 @@ AUTH_METHOD_ORLEN_ID = "orlen_id"
 # this comfortably under that window: every call resets the idle clock.
 ORLEN_SESSION_REFRESH_MINUTES = 10
 DATA_UPDATE_INTERVAL_HOURS = 8
+
+SERVICE_REFRESH = "refresh"
+SERVICE_ADD_READING = "add_reading"
+
+ATTR_METER_ID = "meter_id"
+ATTR_VALUE = "value"
+ATTR_DATE = "date"
+ATTR_CONSENT_METER_RESET = "consent_meter_reset"
+ATTR_CONFIG_ENTRY_ID = "config_entry_id"
