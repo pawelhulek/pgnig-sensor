@@ -67,6 +67,18 @@ the website shows.
 > can. Automations that submit a templated value are worth testing with the
 > template rendered in Developer tools first.
 
+Two guards run before anything is sent, both measured against the reading the
+sensor is currently showing:
+
+| Situation | What happens |
+|---|---|
+| Value **lower** than the last reading | Refused — a meter total only climbs. Pass `consent_meter_reset: true` if the meter really was replaced or rolled over. |
+| Value **more than 500 m³ above** the last reading | Refused — that is the scale of a mistyped reading. Pass `confirm_large_increase: true` if the value is right. |
+
+Neither can run when Home Assistant has no previous reading for the meter yet,
+so the first submission after setup is unchecked. The 500 m³ limit is
+`MAX_READING_INCREASE_M3` in `const.py`.
+
 In the UI, pick the meter from the device list — there is no need to type its
 number. In YAML, `device_id` is what the picker fills in:
 

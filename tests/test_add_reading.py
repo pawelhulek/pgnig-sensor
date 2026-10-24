@@ -21,7 +21,7 @@ from custom_components.pgnig_gas_sensor.exceptions import ReadingRejectedError
 from custom_components.pgnig_gas_sensor.PgnigApi import PgnigApi
 from custom_components.pgnig_gas_sensor.runtime import PgnigRuntimeData
 
-from .builders import build_stub_coordinator
+from .builders import build_stub_coordinator, make_reading
 
 ACCEPTED_RESPONSE = {
     "Code": 0,
@@ -379,3 +379,111 @@ async def test_meter_number_still_works_without_a_device(hass: HomeAssistant):
     )
 
     assert api.addReading.call_args[0][0] == "METER1"
+
+
+# --- guards against a reading that becomes a wrong invoice --------------
+
+
+def _register_with_last_reading(hass: HomeAssistant, api, last_value, meter="METER1"):
+    """One account whose sensor already shows `last_value` for `meter`."""
+    hass.data[DOMAIN] = {
+        "entry_1": PgnigRuntimeData(
+            api=api,
+            meters=MagicMock(),
+            coordinator=build_stub_coordinator(
+                hass, readings={meter: make_reading(value=last_value, meter_number=meter)}
+            ),
+        )
+    }
+    _async_register_add_reading(hass)
+
+
+async def test_reading_lower_than_the_last_one_is_refused(hass: HomeAssistant):
+    api = MagicMock()
+    _register_with_last_reading(hass, api, 140)
+
+    with pytest.raises(ServiceValidationError, match="lower than the last reading"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_ADD_READING,
+            {"meter_id": "METER1", "value": 139},
+            blocking=True,
+        )
+    api.addReading.assert_not_called()
+
+
+async def test_meter_reset_consent_allows_a_lower_reading(hass: HomeAssistant):
+    """A replaced or rolled-over meter legitimately reads lower."""
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register_with_last_reading(hass, api, 140)
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_ADD_READING,
+        {"meter_id": "METER1", "value": 5, "consent_meter_reset": True},
+        blocking=True,
+    )
+    api.addReading.assert_called_once()
+
+
+async def test_implausible_jump_is_refused(hass: HomeAssistant):
+    """1400 instead of 140 is the mistake this is here to stop."""
+    api = MagicMock()
+    _register_with_last_reading(hass, api, 140)
+
+    with pytest.raises(ServiceValidationError, match="above the last reading"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_ADD_READING,
+            {"meter_id": "METER1", "value": 1400},
+            blocking=True,
+        )
+    api.addReading.assert_not_called()
+
+
+async def test_confirming_a_large_increase_submits_it(hass: HomeAssistant):
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register_with_last_reading(hass, api, 140)
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_ADD_READING,
+        {"meter_id": "METER1", "value": 1400, "confirm_large_increase": True},
+        blocking=True,
+    )
+    api.addReading.assert_called_once()
+
+
+@pytest.mark.parametrize("value", [140, 141, 640])
+async def test_plausible_readings_pass_straight_through(hass: HomeAssistant, value):
+    """Equal to, just above, and exactly at the limit are all fine."""
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register_with_last_reading(hass, api, 140)
+
+    await hass.services.async_call(
+        DOMAIN, SERVICE_ADD_READING, {"meter_id": "METER1", "value": value}, blocking=True
+    )
+    api.addReading.assert_called_once()
+
+
+async def test_guards_are_skipped_when_no_reading_is_known_yet(hass: HomeAssistant):
+    """Nothing to compare against must not block the first submission."""
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    hass.data[DOMAIN] = {
+        "entry_1": PgnigRuntimeData(
+            api=api, meters=MagicMock(), coordinator=build_stub_coordinator(hass)
+        )
+    }
+    _async_register_add_reading(hass)
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_ADD_READING,
+        {"meter_id": "METER1", "value": 99999},
+        blocking=True,
+    )
+    api.addReading.assert_called_once()

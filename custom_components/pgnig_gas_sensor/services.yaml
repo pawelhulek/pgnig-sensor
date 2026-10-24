@@ -52,10 +52,22 @@ add_reading:
     consent_meter_reset:
       name: Confirm meter reset
       description: >-
-        Confirm that the meter was replaced or rolled over. Only needed when
-        Orlen rejects the reading because it is lower than the previous one.
+        Confirm that the meter was replaced or rolled over. Needed to submit a
+        reading lower than the last one, which is otherwise refused as a likely
+        mistake.
       required: false
       default: false
+      selector:
+        boolean:
+    confirm_large_increase:
+      name: Confirm large increase
+      description: >-
+        Confirm a reading more than 500 m³ above the last one. Readings that
+        far ahead are refused by default, because a mistyped value becomes a
+        real invoice.
+      required: false
+      default: false
+      advanced: true
       selector:
         boolean:
     config_entry_id:
