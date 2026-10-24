@@ -7,20 +7,34 @@ add_reading:
   name: Add meter reading
   description: >-
     Send a gas meter reading to Orlen EBOK, the same way the "podaj odczyt" form
-    on the website does.
+    on the website does. Check the value against the meter before running this:
+    Orlen bills from the number you send, so one digit too many means an invoice
+    for gas you have not used.
   fields:
+    device_id:
+      name: Meter
+      description: The gas meter to report the reading for.
+      selector:
+        device:
+          integration: pgnig_gas_sensor
     meter_id:
-      name: Meter ID
+      name: Meter number
       description: >-
-        Meter number the reading belongs to - the ID shown in the device name
-        ("Orlen GAS METER ID ...").
-      required: true
+        Meter number, instead of picking a meter above. Only needed when the
+        meter has no device in Home Assistant.
+      required: false
+      advanced: true
       example: "12345678"
       selector:
         text:
     value:
       name: Reading
-      description: Meter state in cubic meters, as shown on the meter (whole units).
+      description: >-
+        Meter state in cubic meters, as shown on the meter (whole units).
+        Double-check it before submitting - this is the number Orlen bills
+        from, and too high a value produces a correspondingly large invoice.
+        An accepted reading can sometimes still be withdrawn on the Orlen
+        website; the response says whether this one can.
       required: true
       example: 1234
       selector:
@@ -38,10 +52,22 @@ add_reading:
     consent_meter_reset:
       name: Confirm meter reset
       description: >-
-        Confirm that the meter was replaced or rolled over. Only needed when
-        Orlen rejects the reading because it is lower than the previous one.
+        Confirm that the meter was replaced or rolled over. Needed to submit a
+        reading lower than the last one, which is otherwise refused as a likely
+        mistake.
       required: false
       default: false
+      selector:
+        boolean:
+    confirm_large_increase:
+      name: Confirm large increase
+      description: >-
+        Confirm a reading more than 500 m³ above the last one. Readings that
+        far ahead are refused by default, because a mistyped value becomes a
+        real invoice.
+      required: false
+      default: false
+      advanced: true
       selector:
         boolean:
     config_entry_id:

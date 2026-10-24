@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import voluptuous as vol
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.pgnig_gas_sensor.AddReading import (
     ReadingResult,
     ReadingSubmission,
@@ -16,6 +18,8 @@ from custom_components.pgnig_gas_sensor.const import DOMAIN, SERVICE_ADD_READING
 from custom_components.pgnig_gas_sensor.exceptions import ReadingRejectedError
 from custom_components.pgnig_gas_sensor.PgnigApi import PgnigApi
 from custom_components.pgnig_gas_sensor.runtime import PgnigRuntimeData
+
+from .builders import build_stub_coordinator, make_reading
 
 ACCEPTED_RESPONSE = {
     "Code": 0,
@@ -204,3 +208,173 @@ async def test_service_picks_account_by_entry_id(hass):
     await _call(hass, {"meter_id": "METER1", "value": 1, "config_entry_id": "entry_1"})
     second.addReading.assert_called_once()
     first.addReading.assert_not_called()
+
+
+# --- picking the meter instead of typing its number --------------------
+
+
+def _register_entry(hass, entry, api):
+    """Expose one account keyed by a real config entry id."""
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = PgnigRuntimeData(
+        api=api, meters=MagicMock(), coordinator=build_stub_coordinator(hass)
+    )
+    _async_register_add_reading(hass)
+
+
+def _add_meter_device(hass, entry, meter_id):
+    return dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, meter_id)},
+        name=f"Orlen GAS METER ID {meter_id}",
+    )
+
+
+async def test_service_accepts_a_picked_device(hass):
+    """Nobody should have to retype a 20-plus digit meter number."""
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register_entry(hass, entry, api)
+    device = _add_meter_device(hass, entry, "8018590365500081588393")
+
+    await _call(hass, {"device_id": device.id, "value": 1234})
+
+    assert api.addReading.call_args[0][0] == "8018590365500081588393"
+
+
+async def test_picked_device_also_names_its_account(hass):
+    """A device belongs to one entry, so config_entry_id is not needed too."""
+    first_entry = MockConfigEntry(domain=DOMAIN, data={}, entry_id="acc_1")
+    first_entry.add_to_hass(hass)
+    second_entry = MockConfigEntry(domain=DOMAIN, data={}, entry_id="acc_2")
+    second_entry.add_to_hass(hass)
+
+    first_api, second_api = MagicMock(), MagicMock()
+    second_api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register_entry(hass, first_entry, first_api)
+    _register_entry(hass, second_entry, second_api)
+    device = _add_meter_device(hass, second_entry, "METER2")
+
+    await _call(hass, {"device_id": device.id, "value": 7})
+
+    second_api.addReading.assert_called_once()
+    first_api.addReading.assert_not_called()
+
+
+async def test_service_rejects_an_unknown_device(hass):
+    _register(hass, MagicMock())
+    with pytest.raises(ServiceValidationError, match="No device with id"):
+        await _call(hass, {"device_id": "does-not-exist", "value": 1234})
+
+
+async def test_service_rejects_a_device_from_another_integration(hass):
+    entry = MockConfigEntry(domain="other_integration", data={})
+    entry.add_to_hass(hass)
+    foreign = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("other_integration", "thing")},
+        name="Something else",
+    )
+    _register(hass, MagicMock())
+
+    with pytest.raises(ServiceValidationError, match="not an Orlen gas meter"):
+        await _call(hass, {"device_id": foreign.id, "value": 1234})
+
+
+async def test_service_needs_a_device_or_a_meter_number(hass):
+    _register(hass, MagicMock())
+    with pytest.raises(vol.Invalid):
+        await _call(hass, {"value": 1234})
+
+
+async def test_service_rejects_an_unknown_account(hass):
+    _register(hass, MagicMock())
+    with pytest.raises(ServiceValidationError, match="No loaded"):
+        await _call(hass, {"meter_id": "METER1", "value": 1, "config_entry_id": "nope"})
+
+
+# --- guards against a reading that becomes a wrong invoice --------------
+
+
+def _register_with_last_reading(hass, api, last_value, meter="METER1"):
+    """One account whose sensor already shows `last_value` for `meter`."""
+    hass.data[DOMAIN] = {
+        "entry_0": PgnigRuntimeData(
+            api=api,
+            meters=MagicMock(),
+            coordinator=build_stub_coordinator(
+                hass,
+                readings={meter: make_reading(value=last_value, meter_number=meter)},
+            ),
+        )
+    }
+    _async_register_add_reading(hass)
+
+
+async def test_reading_lower_than_the_last_one_is_refused(hass):
+    api = MagicMock()
+    _register_with_last_reading(hass, api, 140)
+
+    with pytest.raises(ServiceValidationError, match="lower than the last reading"):
+        await _call(hass, {"meter_id": "METER1", "value": 139})
+    api.addReading.assert_not_called()
+
+
+async def test_meter_reset_consent_allows_a_lower_reading(hass):
+    """A replaced or rolled-over meter legitimately reads lower."""
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register_with_last_reading(hass, api, 140)
+
+    await _call(
+        hass, {"meter_id": "METER1", "value": 5, "consent_meter_reset": True}
+    )
+    api.addReading.assert_called_once()
+
+
+async def test_implausible_jump_is_refused(hass):
+    """1400 instead of 140 is the mistake this is here to stop."""
+    api = MagicMock()
+    _register_with_last_reading(hass, api, 140)
+
+    with pytest.raises(ServiceValidationError, match="above the last reading"):
+        await _call(hass, {"meter_id": "METER1", "value": 1400})
+    api.addReading.assert_not_called()
+
+
+async def test_confirming_a_large_increase_submits_it(hass):
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register_with_last_reading(hass, api, 140)
+
+    await _call(
+        hass, {"meter_id": "METER1", "value": 1400, "confirm_large_increase": True}
+    )
+    api.addReading.assert_called_once()
+
+
+@pytest.mark.parametrize("value", [140, 141, 640])
+async def test_plausible_readings_pass_straight_through(hass, value):
+    """Equal to, just above, and exactly at the limit are all fine."""
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register_with_last_reading(hass, api, 140)
+
+    await _call(hass, {"meter_id": "METER1", "value": value})
+    api.addReading.assert_called_once()
+
+
+async def test_guards_are_skipped_when_no_reading_is_known_yet(hass):
+    """Nothing to compare against must not block the first submission."""
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    hass.data[DOMAIN] = {
+        "entry_0": PgnigRuntimeData(
+            api=api, meters=MagicMock(), coordinator=build_stub_coordinator(hass)
+        )
+    }
+    _async_register_add_reading(hass)
+
+    await _call(hass, {"meter_id": "METER1", "value": 99999})
+    api.addReading.assert_called_once()
