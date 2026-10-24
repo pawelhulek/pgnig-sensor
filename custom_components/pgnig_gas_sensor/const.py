@@ -16,6 +16,7 @@ DATA_UPDATE_INTERVAL_HOURS = 8
 SERVICE_REFRESH = "refresh"
 SERVICE_ADD_READING = "add_reading"
 
+ATTR_DEVICE_ID = "device_id"
 ATTR_METER_ID = "meter_id"
 ATTR_VALUE = "value"
 ATTR_DATE = "date"

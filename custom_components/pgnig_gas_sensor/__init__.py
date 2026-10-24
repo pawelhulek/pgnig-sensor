@@ -16,6 +16,7 @@ from homeassistant.exceptions import (
     HomeAssistantError,
     ServiceValidationError,
 )
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_track_time_interval
 
 from .auth.exceptions import AuthError
@@ -23,6 +24,7 @@ from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_CONSENT_METER_RESET,
     ATTR_DATE,
+    ATTR_DEVICE_ID,
     ATTR_METER_ID,
     ATTR_VALUE,
     AUTH_METHOD_ORLEN_ID,
@@ -48,14 +50,20 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_PASSWORD): cv.string,
 })
 
-ADD_READING_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_METER_ID): cv.string,
-        vol.Required(ATTR_VALUE): vol.All(vol.Coerce(float), vol.Range(min=0)),
-        vol.Optional(ATTR_DATE): cv.date,
-        vol.Optional(ATTR_CONSENT_METER_RESET, default=False): cv.boolean,
-        vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
-    }
+ADD_READING_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_METER_ID): cv.string,
+            vol.Required(ATTR_VALUE): vol.All(vol.Coerce(float), vol.Range(min=0)),
+            vol.Optional(ATTR_DATE): cv.date,
+            vol.Optional(ATTR_CONSENT_METER_RESET, default=False): cv.boolean,
+            vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
+        }
+    ),
+    # Either pick the meter in the UI or name its number; meter_id stays
+    # accepted on its own so existing automations keep working.
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_METER_ID),
 )
 
 async def async_setup(hass, config):
@@ -151,6 +159,36 @@ async def _async_build_runtime_data(
     return PgnigRuntimeData(api=api, meters=meters, coordinator=coordinator)
 
 
+def _resolve_meter(hass: HomeAssistant, call: ServiceCall) -> tuple[str, str | None]:
+    """Resolve the picked device to a meter number and the account it belongs to.
+
+    Picking the meter in the UI is the normal path - nobody should have to
+    remember a 20-plus digit meter number. A device also names its own config
+    entry, so a multi-account setup does not need config_entry_id as well.
+    """
+    entry_id = call.data.get(ATTR_CONFIG_ENTRY_ID)
+    device_id = call.data.get(ATTR_DEVICE_ID)
+    if not device_id:
+        return call.data[ATTR_METER_ID], entry_id
+
+    device = dr.async_get(hass).async_get(device_id)
+    if device is None:
+        raise ServiceValidationError(f"No device with id {device_id}")
+
+    meter_id = next(
+        (identifier[1] for identifier in device.identifiers if identifier[0] == DOMAIN),
+        None,
+    )
+    if meter_id is None:
+        raise ServiceValidationError(
+            f"{device.name or device_id} is not an Orlen gas meter"
+        )
+
+    if entry_id is None and device.config_entries:
+        entry_id = next(iter(device.config_entries))
+    return meter_id, entry_id
+
+
 def _resolve_api(hass: HomeAssistant, entry_id: str | None) -> PgnigApi:
     """Pick the account a service call applies to."""
     runtimes: dict[str, PgnigRuntimeData] = hass.data.get(DOMAIN, {})
@@ -179,8 +217,8 @@ def _async_register_add_reading(hass: HomeAssistant) -> None:
         return
 
     async def handle_add_reading(call: ServiceCall) -> dict[str, object]:
-        api = _resolve_api(hass, call.data.get(ATTR_CONFIG_ENTRY_ID))
-        meter_id = call.data[ATTR_METER_ID]
+        meter_id, entry_id = _resolve_meter(hass, call)
+        api = _resolve_api(hass, entry_id)
         value = call.data[ATTR_VALUE]
         reading_date = call.data.get(ATTR_DATE)
         consent_meter_reset = call.data[ATTR_CONSENT_METER_RESET]

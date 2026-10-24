@@ -9,12 +9,19 @@ add_reading:
     Send a gas meter reading to Orlen EBOK, the same way the "podaj odczyt" form
     on the website does.
   fields:
+    device_id:
+      name: Meter
+      description: The gas meter to report the reading for.
+      selector:
+        device:
+          integration: pgnig_gas_sensor
     meter_id:
-      name: Meter ID
+      name: Meter number
       description: >-
-        Meter number the reading belongs to - the ID shown in the device name
-        ("Orlen GAS METER ID ...").
-      required: true
+        Meter number, instead of picking a meter above. Only needed when the
+        meter has no device in Home Assistant.
+      required: false
+      advanced: true
       example: "12345678"
       selector:
         text:

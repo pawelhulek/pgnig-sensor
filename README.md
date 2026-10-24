@@ -59,14 +59,27 @@ the "podaj odczyt" form on the website. Orlen only accepts readings inside the
 reporting window for the meter; outside it, the call fails with the same error
 the website shows.
 
+In the UI, pick the meter from the device list — there is no need to type its
+number. In YAML, `device_id` is what the picker fills in:
+
 ```yaml
 action: pgnig_gas_sensor.add_reading
 data:
-  meter_id: "12345678"          # the ID shown in the device name
+  device_id: 1a2b3c...          # the meter, as picked in the UI
   value: 1234                   # meter state in m³
   # date: "2026-08-08"          # optional, defaults to today
   # consent_meter_reset: true   # only when the meter was replaced / rolled over
-  # config_entry_id: ...        # only with more than one Orlen account
+```
+
+The picked meter also identifies the account, so `config_entry_id` is only
+needed when passing `meter_id` by hand with more than one Orlen account:
+
+```yaml
+action: pgnig_gas_sensor.add_reading
+data:
+  meter_id: "12345678"          # meter number, if it has no device in HA
+  value: 1234
+  # config_entry_id: ...
 ```
 
 The service returns the accepted reading, so it can be used with
@@ -75,7 +88,7 @@ The service returns the accepted reading, so it can be used with
 ```yaml
 action: pgnig_gas_sensor.add_reading
 data:
-  meter_id: "12345678"
+  device_id: 1a2b3c...
   value: "{{ states('sensor.gas_meter') | round(0) }}"
 response_variable: submitted
 ```

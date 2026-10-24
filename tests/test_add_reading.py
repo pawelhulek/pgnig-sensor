@@ -6,6 +6,8 @@ import pytest
 import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pgnig_gas_sensor import _async_register_add_reading
 from custom_components.pgnig_gas_sensor.AddReading import (
@@ -261,3 +263,119 @@ async def test_service_rejects_an_unknown_account(hass: HomeAssistant):
             {"meter_id": "METER1", "value": 1234, "config_entry_id": "nope"},
             blocking=True,
         )
+
+
+# --- picking the meter instead of typing its number --------------------
+
+
+def _register_entry(hass: HomeAssistant, entry, api) -> None:
+    """Expose one account keyed by a real config entry id."""
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = PgnigRuntimeData(
+        api=api, meters=MagicMock(), coordinator=build_stub_coordinator(hass)
+    )
+    _async_register_add_reading(hass)
+
+
+def _add_meter_device(hass: HomeAssistant, entry, meter_id: str):
+    return dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, meter_id)},
+        name=f"Orlen GAS METER ID {meter_id}",
+    )
+
+
+async def test_service_accepts_a_picked_device(hass: HomeAssistant):
+    """Nobody should have to retype a 20-plus digit meter number."""
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register_entry(hass, entry, api)
+    device = _add_meter_device(hass, entry, "8018590365500081588393")
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_ADD_READING,
+        {"device_id": device.id, "value": 1234},
+        blocking=True,
+    )
+
+    assert api.addReading.call_args[0][0] == "8018590365500081588393"
+
+
+async def test_picked_device_also_names_its_account(hass: HomeAssistant):
+    """A device belongs to one entry, so config_entry_id is not needed too."""
+    first_entry = MockConfigEntry(domain=DOMAIN, data={}, entry_id="acc_1")
+    first_entry.add_to_hass(hass)
+    second_entry = MockConfigEntry(domain=DOMAIN, data={}, entry_id="acc_2")
+    second_entry.add_to_hass(hass)
+
+    first_api, second_api = MagicMock(), MagicMock()
+    second_api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register_entry(hass, first_entry, first_api)
+    _register_entry(hass, second_entry, second_api)
+    device = _add_meter_device(hass, second_entry, "METER2")
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_ADD_READING,
+        {"device_id": device.id, "value": 7},
+        blocking=True,
+    )
+
+    second_api.addReading.assert_called_once()
+    first_api.addReading.assert_not_called()
+
+
+async def test_service_rejects_an_unknown_device(hass: HomeAssistant):
+    _register(hass, MagicMock())
+    with pytest.raises(ServiceValidationError, match="No device with id"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_ADD_READING,
+            {"device_id": "does-not-exist", "value": 1234},
+            blocking=True,
+        )
+
+
+async def test_service_rejects_a_device_from_another_integration(hass: HomeAssistant):
+    entry = MockConfigEntry(domain="other_integration", data={})
+    entry.add_to_hass(hass)
+    foreign = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("other_integration", "thing")},
+        name="Something else",
+    )
+    _register(hass, MagicMock())
+
+    with pytest.raises(ServiceValidationError, match="not an Orlen gas meter"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_ADD_READING,
+            {"device_id": foreign.id, "value": 1234},
+            blocking=True,
+        )
+
+
+async def test_service_needs_a_device_or_a_meter_number(hass: HomeAssistant):
+    _register(hass, MagicMock())
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(
+            DOMAIN, SERVICE_ADD_READING, {"value": 1234}, blocking=True
+        )
+
+
+async def test_meter_number_still_works_without_a_device(hass: HomeAssistant):
+    """Back-compat: automations written against #107 keep working."""
+    api = MagicMock()
+    api.addReading.return_value = ReadingResult.from_dict(ACCEPTED_RESPONSE)
+    _register(hass, api)
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_ADD_READING,
+        {"meter_id": "METER1", "value": 1234},
+        blocking=True,
+    )
+
+    assert api.addReading.call_args[0][0] == "METER1"
