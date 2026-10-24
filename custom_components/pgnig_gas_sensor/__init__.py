@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import timedelta
 
 import homeassistant.helpers.config_validation as cv
@@ -16,13 +17,16 @@ from homeassistant.exceptions import (
     HomeAssistantError,
     ServiceValidationError,
 )
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_track_time_interval
 
 from .auth.exceptions import AuthError
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
+    ATTR_CONFIRM_LARGE_INCREASE,
     ATTR_CONSENT_METER_RESET,
     ATTR_DATE,
+    ATTR_DEVICE_ID,
     ATTR_METER_ID,
     ATTR_VALUE,
     AUTH_METHOD_ORLEN_ID,
@@ -31,6 +35,7 @@ from .const import (
     CONF_MFA_ENABLED,
     DEFAULT_AUTH_METHOD,
     DOMAIN,
+    MAX_READING_INCREASE_M3,
     ORLEN_SESSION_REFRESH_MINUTES,
     SERVICE_ADD_READING,
     SERVICE_REFRESH,
@@ -48,14 +53,21 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_PASSWORD): cv.string,
 })
 
-ADD_READING_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_METER_ID): cv.string,
-        vol.Required(ATTR_VALUE): vol.All(vol.Coerce(float), vol.Range(min=0)),
-        vol.Optional(ATTR_DATE): cv.date,
-        vol.Optional(ATTR_CONSENT_METER_RESET, default=False): cv.boolean,
-        vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
-    }
+ADD_READING_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_METER_ID): cv.string,
+            vol.Required(ATTR_VALUE): vol.All(vol.Coerce(float), vol.Range(min=0)),
+            vol.Optional(ATTR_DATE): cv.date,
+            vol.Optional(ATTR_CONSENT_METER_RESET, default=False): cv.boolean,
+            vol.Optional(ATTR_CONFIRM_LARGE_INCREASE, default=False): cv.boolean,
+            vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
+        }
+    ),
+    # Either pick the meter in the UI or name its number; meter_id stays
+    # accepted on its own so existing automations keep working.
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_METER_ID),
 )
 
 
@@ -125,7 +137,37 @@ async def async_setup_entry(hass, config_entry):
     return True
 
 
-def _resolve_api(hass: HomeAssistant, entry_id: str | None) -> PgnigApi:
+def _resolve_meter(hass: HomeAssistant, call: ServiceCall) -> tuple[str, str | None]:
+    """Resolve the picked device to a meter number and the account it belongs to.
+
+    Picking the meter in the UI is the normal path - nobody should have to
+    remember a 20-plus digit meter number. A device also names its own config
+    entry, so a multi-account setup does not need config_entry_id as well.
+    """
+    entry_id = call.data.get(ATTR_CONFIG_ENTRY_ID)
+    device_id = call.data.get(ATTR_DEVICE_ID)
+    if not device_id:
+        return call.data[ATTR_METER_ID], entry_id
+
+    device = dr.async_get(hass).async_get(device_id)
+    if device is None:
+        raise ServiceValidationError(f"No device with id {device_id}")
+
+    meter_id = next(
+        (identifier[1] for identifier in device.identifiers if identifier[0] == DOMAIN),
+        None,
+    )
+    if meter_id is None:
+        raise ServiceValidationError(
+            f"{device.name or device_id} is not an Orlen gas meter"
+        )
+
+    if entry_id is None and device.config_entries:
+        entry_id = next(iter(device.config_entries))
+    return meter_id, entry_id
+
+
+def _resolve_runtime(hass: HomeAssistant, entry_id: str | None) -> PgnigRuntimeData:
     """Pick the account a service call applies to."""
     runtimes: dict[str, PgnigRuntimeData] = hass.data.get(DOMAIN, {})
     if entry_id is not None:
@@ -134,7 +176,7 @@ def _resolve_api(hass: HomeAssistant, entry_id: str | None) -> PgnigApi:
             raise ServiceValidationError(
                 f"No loaded Orlen gas sensor config entry with id {entry_id}"
             )
-        return runtime.api
+        return runtime
 
     if not runtimes:
         raise ServiceValidationError("No Orlen gas sensor account is set up")
@@ -143,7 +185,70 @@ def _resolve_api(hass: HomeAssistant, entry_id: str | None) -> PgnigApi:
             "Several Orlen accounts are configured; pass config_entry_id to "
             "choose which one to submit the reading for"
         )
-    return next(iter(runtimes.values())).api
+    return next(iter(runtimes.values()))
+
+
+def _last_known_reading(runtime: PgnigRuntimeData, meter_id: str) -> float | None:
+    """The reading the sensor is currently showing, if there is one.
+
+    Only a value recognisable as a number counts. A guard that decides what to
+    refuse has to be sure of what it is comparing against, so anything else -
+    no poll yet, an unknown meter, a non-numeric reading - means no comparison
+    rather than a comparison against something made up.
+    """
+    readings = getattr(runtime.coordinator.data, "readings", None)
+    if not isinstance(readings, Mapping):
+        return None
+    value = getattr(readings.get(meter_id), "value", None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _check_reading_is_plausible(
+    runtime: PgnigRuntimeData,
+    meter_id: str,
+    value: float,
+    *,
+    consent_meter_reset: bool,
+    confirm_large_increase: bool,
+) -> None:
+    """Refuse a reading that cannot be right before it becomes an invoice.
+
+    Orlen bills from the value submitted and accepts it without much argument,
+    so the checks that matter happen here. Both are measured against the last
+    reading Home Assistant knows about - the number shown on the sensor - and
+    both are skipped when there is nothing to compare against.
+    """
+    last = _last_known_reading(runtime, meter_id)
+    if last is None:
+        _LOGGER.debug(
+            "No previous reading known for meter %s; submitting %s unchecked",
+            meter_id,
+            value,
+        )
+        return
+
+    if value < last:
+        if consent_meter_reset:
+            return
+        raise ServiceValidationError(
+            f"{value:g} m3 is lower than the last reading for meter {meter_id} "
+            f"({last:g} m3). A meter total only climbs, so this looks like a "
+            "mistake and Orlen would bill from it. If the meter really was "
+            "replaced or has rolled over, repeat the call with "
+            "consent_meter_reset: true."
+        )
+
+    increase = value - last
+    if increase > MAX_READING_INCREASE_M3 and not confirm_large_increase:
+        raise ServiceValidationError(
+            f"{value:g} m3 is {increase:g} m3 above the last reading "
+            f"({last:g} m3), more than the {MAX_READING_INCREASE_M3} m3 this "
+            "integration submits unchecked - a mistyped reading becomes a real "
+            "invoice. If the value is correct, repeat the call with "
+            "confirm_large_increase: true."
+        )
 
 
 @callback
@@ -153,11 +258,20 @@ def _async_register_add_reading(hass: HomeAssistant) -> None:
         return
 
     async def handle_add_reading(call: ServiceCall) -> dict[str, object]:
-        api = _resolve_api(hass, call.data.get(ATTR_CONFIG_ENTRY_ID))
-        meter_id = call.data[ATTR_METER_ID]
+        meter_id, entry_id = _resolve_meter(hass, call)
+        runtime = _resolve_runtime(hass, entry_id)
+        api = runtime.api
         value = call.data[ATTR_VALUE]
         reading_date = call.data.get(ATTR_DATE)
         consent_meter_reset = call.data[ATTR_CONSENT_METER_RESET]
+
+        _check_reading_is_plausible(
+            runtime,
+            meter_id,
+            value,
+            consent_meter_reset=consent_meter_reset,
+            confirm_large_increase=call.data[ATTR_CONFIRM_LARGE_INCREASE],
+        )
 
         _LOGGER.debug(
             "Submitting reading %s for meter %s (date=%s, consent_meter_reset=%s)",
