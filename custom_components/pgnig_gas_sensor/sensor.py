@@ -125,9 +125,13 @@ class PgnigBaseSensor(CoordinatorEntity[PgnigCoordinator], SensorEntity):
 
     State is recomputed when the coordinator delivers a poll, so the entities
     never touch the API themselves.
+
+    has_entity_name keeps the entity role short ("Meter reading") and lets the
+    device supply the meter id once — otherwise HA concatenates both and the
+    entity_id doubles the 20-digit meter number (#119).
     """
 
-    _name_prefix: str
+    _attr_has_entity_name = True
     _unique_id_prefix: str
 
     def __init__(
@@ -136,7 +140,6 @@ class PgnigBaseSensor(CoordinatorEntity[PgnigCoordinator], SensorEntity):
         super().__init__(coordinator)
         self.meter_id = meter_id
         self.id_local = id_local
-        self.entity_name = f"{self._name_prefix} {meter_id} {id_local}"
         self._state: Any = None
         self._refresh_state()
 
@@ -153,10 +156,6 @@ class PgnigBaseSensor(CoordinatorEntity[PgnigCoordinator], SensorEntity):
             "model": self.meter_id,
         }
 
-    @property
-    def name(self) -> str:
-        return self.entity_name
-
     def _state_from(self, data: PgnigData) -> Any:
         """Derive this entity's state from one poll."""
         raise NotImplementedError
@@ -168,15 +167,17 @@ class PgnigBaseSensor(CoordinatorEntity[PgnigCoordinator], SensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         self._refresh_state()
-        _LOGGER.debug("%s updated: %s", self.entity_name, self.state)
+        _LOGGER.debug(
+            "%s %s updated: %s", self.translation_key, self.meter_id, self.state
+        )
         super()._handle_coordinator_update()
 
 
 class PgnigSensor(PgnigBaseSensor):
     """Latest meter reading."""
 
-    _name_prefix = "Orlen Gas Sensor"
     _unique_id_prefix = "pgnig_sensor"
+    _attr_translation_key = "meter_reading"
 
     _attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
     _attr_device_class = SensorDeviceClass.GAS
@@ -219,8 +220,8 @@ class PgnigSensor(PgnigBaseSensor):
 class PgnigInvoiceSensor(PgnigBaseSensor):
     """Total still owed, plus the next payment due."""
 
-    _name_prefix = "Orlen Gas Invoice Sensor"
     _unique_id_prefix = "pgnig_invoice_sensor"
+    _attr_translation_key = "unpaid_invoices"
 
     _attr_native_unit_of_measurement = "PLN"
     _attr_device_class = SensorDeviceClass.MONETARY
@@ -249,8 +250,8 @@ class PgnigInvoiceSensor(PgnigBaseSensor):
 class PgnigCostTrackingSensor(PgnigBaseSensor):
     """Price per m³ from the most recent priced invoice."""
 
-    _name_prefix = "Orlen Gas Cost Tracking Sensor"
     _unique_id_prefix = "pgnig_cost_tracking_sensor"
+    _attr_translation_key = "unit_cost"
 
     _attr_native_unit_of_measurement = "PLN/m³"
     _attr_device_class = SensorDeviceClass.MONETARY
