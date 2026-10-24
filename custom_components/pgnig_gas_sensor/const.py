@@ -12,3 +12,20 @@ AUTH_METHOD_ORLEN_ID = "orlen_id"
 # this comfortably under that window: every call resets the idle clock.
 ORLEN_SESSION_REFRESH_MINUTES = 10
 DATA_UPDATE_INTERVAL_HOURS = 8
+
+SERVICE_REFRESH = "refresh"
+SERVICE_ADD_READING = "add_reading"
+
+ATTR_DEVICE_ID = "device_id"
+ATTR_METER_ID = "meter_id"
+ATTR_VALUE = "value"
+ATTR_DATE = "date"
+ATTR_CONSENT_METER_RESET = "consent_meter_reset"
+ATTR_CONFIRM_LARGE_INCREASE = "confirm_large_increase"
+ATTR_CONFIG_ENTRY_ID = "config_entry_id"
+
+# A reading is billed from the value submitted, and a mistyped one is a real
+# invoice. Anything more than this above the last known reading is refused
+# unless the caller confirms it: the meter total only ever climbs, so the jump
+# between two readings is what can be sanity-checked, never the total itself.
+MAX_READING_INCREASE_M3 = 500
