@@ -7,7 +7,9 @@ add_reading:
   name: Add meter reading
   description: >-
     Send a gas meter reading to Orlen EBOK, the same way the "podaj odczyt" form
-    on the website does.
+    on the website does. Check the value against the meter before running this:
+    Orlen bills from the number you send, so one digit too many means an invoice
+    for gas you have not used.
   fields:
     device_id:
       name: Meter
@@ -27,7 +29,12 @@ add_reading:
         text:
     value:
       name: Reading
-      description: Meter state in cubic meters, as shown on the meter (whole units).
+      description: >-
+        Meter state in cubic meters, as shown on the meter (whole units).
+        Double-check it before submitting - this is the number Orlen bills
+        from, and too high a value produces a correspondingly large invoice.
+        An accepted reading can sometimes still be withdrawn on the Orlen
+        website; the response says whether this one can.
       required: true
       example: 1234
       selector:

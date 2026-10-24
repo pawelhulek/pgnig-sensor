@@ -155,7 +155,13 @@ class PgnigApi:
         reading_date: date | None = None,
         consent_meter_reset: bool = False,
     ) -> ReadingResult:
-        """Submit a meter reading to Orlen EBOK."""
+        """Submit a meter reading to Orlen EBOK.
+
+        This is a billable write: Orlen invoices from the value submitted, so
+        callers are responsible for having checked it. Nothing here can tell a
+        mistyped reading from a real one - the only server-side guards are the
+        reporting window and a value lower than the previous one (code 1040).
+        """
         submission = ReadingSubmission(
             meter_id=meter_id,
             value=value,

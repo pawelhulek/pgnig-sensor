@@ -59,6 +59,14 @@ the "podaj odczyt" form on the website. Orlen only accepts readings inside the
 reporting window for the meter; outside it, the call fails with the same error
 the website shows.
 
+> **Check the value before you send it.** Orlen bills from the number you
+> submit, so a mistyped or badly scaled reading — a digit too many, or a sensor
+> reporting something other than the meter's own total — turns into an invoice
+> for gas you never used. An accepted reading can sometimes still be withdrawn
+> on the Orlen website; `can_be_cancelled` in the response says whether that one
+> can. Automations that submit a templated value are worth testing with the
+> template rendered in Developer tools first.
+
 In the UI, pick the meter from the device list — there is no need to type its
 number. In YAML, `device_id` is what the picker fills in:
 
